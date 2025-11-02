@@ -1,0 +1,410 @@
+#!/usr/bin/env zsh
+
+# claude-swap: Safely swap between Z.ai, MiniMax, and standard Anthropic Claude configurations
+# Usage: claude-swap [zai|minimax|standard]
+
+set -euo pipefail
+
+SETTINGS_FILE="$HOME/.claude/settings.json"
+BACKUP_DIR="$HOME/.claude/backups"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+# Color output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Configuration profiles (use environment variables)
+# Users MUST set these before use
+
+# Get from environment or use default placeholder
+ZAI_BASE_URL="${CLAUDE_ZAI_BASE_URL:-https://api.z.ai/api/anthropic}"
+ZAI_AUTH_TOKEN="${CLAUDE_ZAI_AUTH_TOKEN:-}"
+ZAI_TIMEOUT="${CLAUDE_ZAI_TIMEOUT:-3000000}"
+
+MINIMAX_BASE_URL="${CLAUDE_MINIMAX_BASE_URL:-https://api.minimax.io/anthropic}"
+MINIMAX_AUTH_TOKEN="${CLAUDE_MINIMAX_AUTH_TOKEN:-}"
+MINIMAX_TIMEOUT="${CLAUDE_MINIMAX_TIMEOUT:-3000000}"
+
+STANDARD_TIMEOUT="${CLAUDE_STANDARD_TIMEOUT:-120000}"
+
+# Helper functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Validate credentials
+validate_credentials() {
+    local service="$1"
+    local token="$2"
+
+    if [[ -z "$token" ]] || [[ "$token" == "your-token-here" ]]; then
+        log_error "$service credentials not configured!"
+        echo ""
+        echo "To configure, set environment variables:"
+        echo ""
+        if [[ "$service" == "Z.ai" ]]; then
+            echo "export CLAUDE_ZAI_AUTH_TOKEN=\"your-zai-token-here\""
+            echo "export CLAUDE_ZAI_BASE_URL=\"https://api.z.ai/api/anthropic\""
+            echo ""
+            echo "Add these to your ~/.zshrc or ~/.bashrc"
+        elif [[ "$service" == "MiniMax" ]]; then
+            echo "export CLAUDE_MINIMAX_AUTH_TOKEN=\"your-minimax-token-here\""
+            echo "export CLAUDE_MINIMAX_BASE_URL=\"https://api.minimax.io/anthropic\""
+            echo ""
+            echo "Add these to your ~/.zshrc or ~/.bashrc"
+        fi
+        return 1
+    fi
+    return 0
+}
+
+# Create backup directory if it doesn't exist
+create_backup_dir() {
+    if [[ ! -d "$BACKUP_DIR" ]]; then
+        mkdir -p "$BACKUP_DIR"
+        log_info "Created backup directory: $BACKUP_DIR"
+    fi
+}
+
+# Backup current settings
+backup_settings() {
+    if [[ ! -f "$SETTINGS_FILE" ]]; then
+        log_error "Settings file not found: $SETTINGS_FILE"
+        return 1
+    fi
+
+    local backup_file="$BACKUP_DIR/settings_${TIMESTAMP}.json"
+    cp "$SETTINGS_FILE" "$backup_file"
+    log_success "Backed up settings to: $backup_file"
+
+    # Keep only last 10 backups
+    ls -t "$BACKUP_DIR"/settings_*.json | tail -n +11 | xargs -r rm
+}
+
+# Get current configuration type
+get_current_config() {
+    if [[ ! -f "$SETTINGS_FILE" ]]; then
+        echo "none"
+        return
+    fi
+
+    local base_url=$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$SETTINGS_FILE")
+
+    if [[ "$base_url" == "https://api.z.ai/api/anthropic" ]]; then
+        echo "zai"
+    elif [[ "$base_url" == "https://api.minimax.io/anthropic" ]]; then
+        echo "minimax"
+    elif [[ -z "$base_url" ]] || [[ "$base_url" == "null" ]]; then
+        echo "standard"
+    else
+        echo "unknown"
+    fi
+}
+
+# Swap to Z.ai configuration
+swap_to_zai() {
+    log_info "Swapping to Z.ai configuration..."
+
+    validate_credentials "Z.ai" "$ZAI_AUTH_TOKEN" || return 1
+
+    create_backup_dir
+    backup_settings
+
+    # Read current settings
+    local current_json=$(cat "$SETTINGS_FILE")
+
+    # Update environment variables
+    local updated_json=$(echo "$current_json" | jq \
+        --arg auth_token "$ZAI_AUTH_TOKEN" \
+        --arg base_url "$ZAI_BASE_URL" \
+        --arg timeout "$ZAI_TIMEOUT" \
+        '.env.ANTHROPIC_AUTH_TOKEN = $auth_token |
+         .env.ANTHROPIC_BASE_URL = $base_url |
+         .env.API_TIMEOUT_MS = $timeout')
+
+    # Validate JSON before writing
+    if ! echo "$updated_json" | jq empty 2>/dev/null; then
+        log_error "Generated invalid JSON. Restoring from backup."
+        restore_latest_backup
+        return 1
+    fi
+
+    # Write updated settings
+    echo "$updated_json" > "$SETTINGS_FILE"
+
+    log_success "Successfully switched to Z.ai configuration"
+    log_info "  ANTHROPIC_BASE_URL: $ZAI_BASE_URL"
+    log_info "  API_TIMEOUT_MS: $ZAI_TIMEOUT"
+}
+
+# Swap to MiniMax configuration
+swap_to_minimax() {
+    log_info "Swapping to MiniMax configuration..."
+
+    validate_credentials "MiniMax" "$MINIMAX_AUTH_TOKEN" || return 1
+
+    create_backup_dir
+    backup_settings
+
+    # Read current settings
+    local current_json=$(cat "$SETTINGS_FILE")
+
+    # Update all MiniMax environment variables
+    local updated_json=$(echo "$current_json" | jq \
+        --arg base_url "$MINIMAX_BASE_URL" \
+        --arg auth_token "$MINIMAX_AUTH_TOKEN" \
+        --arg timeout "$MINIMAX_TIMEOUT" \
+        --arg disable_traffic "1" \
+        --arg model "MiniMax-M2" \
+        --arg small_fast_model "MiniMax-M2" \
+        --arg sonnet_model "MiniMax-M2" \
+        --arg opus_model "MiniMax-M2" \
+        --arg haiku_model "MiniMax-M2" \
+        '.env.ANTHROPIC_BASE_URL = $base_url |
+         .env.ANTHROPIC_AUTH_TOKEN = $auth_token |
+         .env.API_TIMEOUT_MS = $timeout |
+         .env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = ($disable_traffic | tonumber) |
+         .env.ANTHROPIC_MODEL = $model |
+         .env.ANTHROPIC_SMALL_FAST_MODEL = $small_fast_model |
+         .env.ANTHROPIC_DEFAULT_SONNET_MODEL = $sonnet_model |
+         .env.ANTHROPIC_DEFAULT_OPUS_MODEL = $opus_model |
+         .env.ANTHROPIC_DEFAULT_HAIKU_MODEL = $haiku_model')
+
+    # Validate JSON before writing
+    if ! echo "$updated_json" | jq empty 2>/dev/null; then
+        log_error "Generated invalid JSON. Restoring from backup."
+        restore_latest_backup
+        return 1
+    fi
+
+    # Write updated settings
+    echo "$updated_json" > "$SETTINGS_FILE"
+
+    log_success "Successfully switched to MiniMax configuration"
+    log_info "  ANTHROPIC_BASE_URL: $MINIMAX_BASE_URL"
+    log_info "  API_TIMEOUT_MS: $MINIMAX_TIMEOUT"
+    log_info "  ANTHROPIC_MODEL: MiniMax-M2"
+}
+
+# Swap to standard Anthropic configuration
+swap_to_standard() {
+    log_info "Swapping to standard Anthropic configuration..."
+
+    create_backup_dir
+    backup_settings
+
+    # Read current settings
+    local current_json=$(cat "$SETTINGS_FILE")
+
+    # Get the original auth token from the most recent non-custom backup
+    local original_token=$(find "$BACKUP_DIR" -name "settings_*.json" -type f -exec \
+        jq -r 'select(.env.ANTHROPIC_BASE_URL != "https://api.z.ai/api/anthropic" and .env.ANTHROPIC_BASE_URL != "https://api.minimax.io/anthropic") | .env.ANTHROPIC_AUTH_TOKEN // ""' {} \; | \
+        grep -v '^$' | head -n 1)
+
+    if [[ -z "$original_token" ]]; then
+        log_warning "Could not find original auth token in backups"
+        log_warning "You may need to set ANTHROPIC_AUTH_TOKEN manually"
+        original_token=""
+    fi
+
+    # Update environment variables
+    local updated_json=$(echo "$current_json" | jq \
+        --arg auth_token "$original_token" \
+        --arg timeout "$STANDARD_TIMEOUT" \
+        '.env.ANTHROPIC_AUTH_TOKEN = $auth_token |
+         .env.API_TIMEOUT_MS = $timeout |
+         del(.env.ANTHROPIC_BASE_URL, .env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, .env.ANTHROPIC_MODEL, .env.ANTHROPIC_SMALL_FAST_MODEL, .env.ANTHROPIC_DEFAULT_SONNET_MODEL, .env.ANTHROPIC_DEFAULT_OPUS_MODEL, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL)')
+
+    # Validate JSON before writing
+    if ! echo "$updated_json" | jq empty 2>/dev/null; then
+        log_error "Generated invalid JSON. Restoring from backup."
+        restore_latest_backup
+        return 1
+    fi
+
+    # Write updated settings
+    echo "$updated_json" > "$SETTINGS_FILE"
+
+    log_success "Successfully switched to standard Anthropic configuration"
+    log_info "  ANTHROPIC_BASE_URL: (removed/default)"
+    log_info "  API_TIMEOUT_MS: $STANDARD_TIMEOUT"
+
+    if [[ -n "$original_token" ]]; then
+        log_info "  Restored original ANTHROPIC_AUTH_TOKEN"
+    fi
+}
+
+# Restore latest backup
+restore_latest_backup() {
+    local latest_backup=$(ls -t "$BACKUP_DIR"/settings_*.json 2>/dev/null | head -n 1)
+
+    if [[ -z "$latest_backup" ]]; then
+        log_error "No backups found to restore"
+        return 1
+    fi
+
+    cp "$latest_backup" "$SETTINGS_FILE"
+    log_success "Restored settings from: $latest_backup"
+}
+
+# Show current status
+show_status() {
+    local current=$(get_current_config)
+
+    echo ""
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}  Claude Configuration Status${NC}"
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+
+    case "$current" in
+        zai)
+            echo -e "Current Configuration: ${GREEN}Z.ai${NC}"
+            ;;
+        minimax)
+            echo -e "Current Configuration: ${MAGENTA}MiniMax${NC}"
+            ;;
+        standard)
+            echo -e "Current Configuration: ${GREEN}Standard Anthropic${NC}"
+            ;;
+        unknown)
+            echo -e "Current Configuration: ${YELLOW}Unknown/Custom${NC}"
+            ;;
+        none)
+            echo -e "Current Configuration: ${RED}Not Found${NC}"
+            ;;
+    esac
+
+    if [[ -f "$SETTINGS_FILE" ]]; then
+        local base_url=$(jq -r '.env.ANTHROPIC_BASE_URL // "(not set)"' "$SETTINGS_FILE")
+        local timeout=$(jq -r '.env.API_TIMEOUT_MS // "(not set)"' "$SETTINGS_FILE")
+        local model=$(jq -r '.env.ANTHROPIC_MODEL // "(not set)"' "$SETTINGS_FILE")
+        local token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // "(not set)"' "$SETTINGS_FILE")
+        local token_preview="${token:0:20}..."
+
+        echo ""
+        echo "Settings:"
+        echo "  ANTHROPIC_BASE_URL: $base_url"
+        echo "  API_TIMEOUT_MS: $timeout"
+        if [[ "$model" != "(not set)" ]]; then
+            echo "  ANTHROPIC_MODEL: $model"
+        fi
+        echo "  ANTHROPIC_AUTH_TOKEN: $token_preview"
+    fi
+
+    local backup_count=$(ls -1 "$BACKUP_DIR"/settings_*.json 2>/dev/null | wc -l | tr -d ' ')
+    echo ""
+    echo "Backups available: ${backup_count:-0}"
+
+    echo ""
+    echo -e "${YELLOW}Configuration Check:${NC}"
+    if [[ -z "$ZAI_AUTH_TOKEN" ]] && [[ "$current" != "minimax" ]] && [[ "$current" != "standard" ]]; then
+        echo -e "${YELLOW}  ⚠ Z.ai token not configured (set CLAUDE_ZAI_AUTH_TOKEN)${NC}"
+    fi
+    if [[ -z "$MINIMAX_AUTH_TOKEN" ]] && [[ "$current" != "zai" ]] && [[ "$current" != "standard" ]]; then
+        echo -e "${YELLOW}  ⚠ MiniMax token not configured (set CLAUDE_MINIMAX_AUTH_TOKEN)${NC}"
+    fi
+
+    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
+    echo ""
+}
+
+# Show usage
+show_usage() {
+    cat << EOF
+Usage: claude-swap [COMMAND]
+
+Commands:
+  zai           Switch to Z.ai configuration
+  minimax       Switch to MiniMax configuration
+  standard      Switch to standard Anthropic configuration
+  status        Show current configuration status
+  restore       Restore from latest backup
+  help          Show this help message
+
+Configuration:
+  Before using, set environment variables in your ~/.zshrc or ~/.bashrc:
+
+  For Z.ai:
+    export CLAUDE_ZAI_AUTH_TOKEN="your-zai-token-here"
+    export CLAUDE_ZAI_BASE_URL="https://api.z.ai/api/anthropic"
+
+  For MiniMax:
+    export CLAUDE_MINIMAX_AUTH_TOKEN="your-minimax-token-here"
+    export CLAUDE_MINIMAX_BASE_URL="https://api.minimax.io/anthropic"
+
+  Then reload: source ~/.zshrc
+
+Examples:
+  claude-swap zai        # Switch to Z.ai
+  claude-swap minimax    # Switch to MiniMax
+  claude-swap standard   # Switch to standard Anthropic
+  claude-swap status     # Show current config
+  claude-swap restore    # Restore latest backup
+
+Configuration files:
+  Settings:     $SETTINGS_FILE
+  Backups:      $BACKUP_DIR
+
+EOF
+}
+
+# Main command handler
+main() {
+    # Check for jq dependency
+    if ! command -v jq &> /dev/null; then
+        log_error "jq is required but not installed. Install with: brew install jq"
+        exit 1
+    fi
+
+    local command="${1:-status}"
+
+    case "$command" in
+        zai)
+            swap_to_zai
+            show_status
+            ;;
+        minimax|mm)
+            swap_to_minimax
+            show_status
+            ;;
+        standard|std)
+            swap_to_standard
+            show_status
+            ;;
+        status|st)
+            show_status
+            ;;
+        restore)
+            restore_latest_backup
+            show_status
+            ;;
+        help|-h|--help)
+            show_usage
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            echo ""
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
