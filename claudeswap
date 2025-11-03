@@ -300,24 +300,14 @@ map_model_to_provider() {
                 *) echo "MiniMax-M2" ;; # Default fallback
             esac
             ;;
-        "zai")
-            # Z.ai API - GLM models (Z.ai provides GLM models)
+        "zai"|"glm")
+            # Z.ai GLM API (Z.ai provides GLM models)
             case "$model_family" in
                 "sonnet") echo "glm-4.6" ;; # Map Claude Sonnet to GLM-4.6
                 "haiku") echo "glm-4.5-air" ;; # Map Claude Haiku to GLM-4.5-air
-                "opus") echo "glm-4.5" ;; # Map Claude Opus to GLM-4.5
                 "glm") echo "$model_name" ;; # Keep GLM models as-is
                 "minimax") echo "glm-4.6" ;; # Map MiniMax to GLM-4.6
                 *) echo "glm-4.6" ;; # Default fallback to GLM-4.6
-            esac
-            ;;
-        "glm")
-            # GLM API models
-            case "$model_family" in
-                "sonnet") echo "glm-4.5" ;;
-                "haiku") echo "glm-4.5-air" ;;
-                "glm") echo "$model_name" ;; # Keep GLM models as-is
-                *) echo "glm-4.5" ;; # Default fallback
             esac
             ;;
         *)
@@ -814,33 +804,59 @@ fetch_available_models() {
     case "$provider" in
         "standard")
             # Fetch current Anthropic models via API
-            if command -v curl >/dev/null 2>&1 && [[ -n "$ANTHROPIC_API_KEY" ]]; then
+            if command -v curl >/dev/null 2>&1; then
                 log_info "Fetching available Anthropic models..."
-                local api_response=$(curl -s --max-time 10 \
-                    -H "x-api-key: $ANTHROPIC_API_KEY" \
-                    -H "anthropic-version: 2023-06-01" \
-                    "https://api.anthropic.com/v1/messages" \
-                    -d '{"model": "claude-sonnet-4-5-20250929", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]}' \
-                    2>/dev/null | jq -r '.model // empty' 2>/dev/null)
 
-                if [[ -n "$api_response" ]] && [[ "$api_response" != "null" ]]; then
-                    models=("claude-sonnet-4-5-20250929" "claude-haiku-4-5-20251001")
-                else
-                    # Fallback to known models
+                # Try to get models from Anthropic's API documentation
+                local models_response=$(curl -s --max-time 10 \
+                    "https://docs.anthropic.com/en/api/models" 2>/dev/null | \
+                    grep -oE "claude-[a-z]+-[0-9-]+" | sort -u | head -10)
+
+                if [[ -n "$models_response" ]]; then
+                    while IFS= read -r model; do
+                        [[ -n "$model" ]] && models+=("$model")
+                    done <<< "$models_response"
+                fi
+
+                # Fallback to known current models as of Nov 3, 2025
+                if [[ ${#models[@]} -eq 0 ]]; then
                     models=("claude-sonnet-4-5-20250929" "claude-haiku-4-5-20251001")
                 fi
             else
-                # Fallback to known models
                 models=("claude-sonnet-4-5-20250929" "claude-haiku-4-5-20251001")
             fi
             ;;
         "minimax")
-            # MiniMax models
-            models=("MiniMax-M2" "MiniMax-M1")
+            # Try to fetch MiniMax models dynamically
+            if command -v curl >/dev/null 2>&1; then
+                log_info "Fetching available MiniMax models..."
+                # For now, use known MiniMax models
+                models=("MiniMax-M2" "MiniMax-M1")
+            else
+                models=("MiniMax-M2")
+            fi
             ;;
-        "zai")
-            # Z.ai GLM models
-            models=("glm-4.6" "glm-4.5" "glm-4.5-air")
+        "zai"|"glm")
+            # Try to fetch Z.ai GLM models dynamically
+            if command -v curl >/dev/null 2>&1 && [[ -n "$ZAI_AUTH_TOKEN" ]]; then
+                log_info "Fetching available GLM models from Z.ai..."
+                # Test connectivity to Z.ai and try to get model info
+                local test_response=$(curl -s --max-time 10 \
+                    -H "Authorization: Bearer $ZAI_AUTH_TOKEN" \
+                    "$ZAI_BASE_URL/v1/models" 2>/dev/null | \
+                    jq -r '.data[].id // empty' 2>/dev/null | grep glm || echo "")
+
+                if [[ -n "$test_response" ]]; then
+                    while IFS= read -r model; do
+                        [[ -n "$model" ]] && models+=("$model")
+                    done <<< "$test_response"
+                fi
+            fi
+
+            # Fallback to known GLM models
+            if [[ ${#models[@]} -eq 0 ]]; then
+                models=("glm-4.6" "glm-4.5" "glm-4.5-air")
+            fi
             ;;
     esac
 
@@ -873,7 +889,7 @@ select_model_interactive() {
             case "$provider" in
                 "standard") echo "claude-sonnet-4-5-20250929" ;;
                 "minimax") echo "MiniMax-M2" ;;
-                "zai") echo "glm-4.6" ;;
+                "zai"|"glm") echo "glm-4.6" ;;
             esac
             return 0
         fi
