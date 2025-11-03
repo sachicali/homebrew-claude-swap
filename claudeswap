@@ -7,6 +7,10 @@ set -euo pipefail
 
 SETTINGS_FILE="$HOME/.claude/settings.json"
 BACKUP_DIR="$HOME/.claude/backups"
+CLAUDE_SESSION_DIR="$HOME/.claude/todos"
+CLAUDE_TODO_DIR="$HOME/.claude/todos"
+CLAUDE_PROJECT_DIR="$HOME/.claude/projects"
+CLAUDE_SESSION_BACKUP_DIR="$HOME/.claude/session_backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # Color output
@@ -177,12 +181,539 @@ validate_credentials() {
     return 0
 }
 
+# Session management
+
 # Create backup directory if it doesn't exist
 create_backup_dir() {
     if [[ ! -d "$BACKUP_DIR" ]]; then
         mkdir -p "$BACKUP_DIR"
         log_info "Created backup directory: $BACKUP_DIR"
     fi
+}
+
+# Create session backup directory
+create_session_backup_dir() {
+    if [[ ! -d "$CLAUDE_SESSION_BACKUP_DIR" ]]; then
+        mkdir -p "$CLAUDE_SESSION_BACKUP_DIR"
+    fi
+}
+
+# Detect current session provider type
+detect_session_provider() {
+    if [[ ! -d "$CLAUDE_SESSION_DIR" ]]; then
+        echo "none"
+        return
+    fi
+
+    # Check for any session files
+    local session_count=$(ls -1 "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$session_count" -eq 0 ]]; then
+        echo "none"
+        return
+    fi
+
+    # Read current settings to determine provider
+    local current_provider=$(get_current_config)
+    echo "$current_provider"
+}
+
+# Check if session is compatible between providers
+is_session_compatible() {
+    local from_provider="$1"
+    local to_provider="$2"
+
+    # Same provider is always compatible
+    if [[ "$from_provider" == "$to_provider" ]]; then
+        return 0  # Compatible
+    fi
+
+    # Z.ai and MiniMax are compatible (both proxy providers)
+    if [[ "$from_provider" == "zai" && "$to_provider" == "minimax" ]] || \
+       [[ "$from_provider" == "minimax" && "$to_provider" == "zai" ]]; then
+        return 0  # Compatible
+    fi
+
+    # Standard with others is not compatible due to thinking blocks
+    if [[ "$from_provider" == "standard" && "$to_provider" != "standard" ]] || \
+       [[ "$to_provider" == "standard" && "$from_provider" != "standard" ]]; then
+        return 1  # Not compatible
+    fi
+
+    return 0  # Default to compatible
+}
+
+# Backup current sessions
+backup_sessions() {
+    local backup_name="session_backup_$(date +%Y%m%d_%H%M%S)"
+    local backup_path="$CLAUDE_SESSION_BACKUP_DIR/$backup_name"
+
+    if [[ -d "$CLAUDE_SESSION_DIR" ]] && [[ "$(ls -A "$CLAUDE_SESSION_DIR" 2>/dev/null)" ]]; then
+        cp -r "$CLAUDE_SESSION_DIR" "$backup_path"
+        log_success "Sessions backed up to: $backup_path"
+        echo "$backup_path"
+    else
+        log_info "No sessions to backup"
+        echo ""
+    fi
+}
+
+# Clear all sessions
+clear_sessions() {
+    if [[ -d "$CLAUDE_SESSION_DIR" ]]; then
+        local session_count=$(ls -1 "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$session_count" -gt 0 ]]; then
+            rm -f "$CLAUDE_SESSION_DIR"/*.json
+            log_success "Cleared $session_count session files"
+        else
+            log_info "No sessions to clear"
+        fi
+    fi
+}
+
+# Dynamic model detection and mapping for any model type
+map_model_to_provider() {
+    local model_name="$1"
+    local target_provider="$2"
+
+    # Detect model family and characteristics
+    local model_family=$(detect_model_family "$model_name")
+    local model_tier=$(detect_model_tier "$model_name")
+
+    # Map to target provider's equivalent model
+    case "$target_provider" in
+        "standard")
+            # Anthropic API - use exact model names
+            case "$model_family" in
+                "sonnet") echo "claude-sonnet-4-5-20250929" ;;
+                "haiku") echo "claude-haiku-4-5-20251001" ;;
+                "opus") echo "claude-opus-4-5-20250229" ;;
+                "glm") echo "claude-sonnet-4-5-20250929" ;; # Fallback for GLM models
+                "minimax") echo "claude-sonnet-4-5-20250929" ;; # Fallback for MiniMax models
+                *) echo "claude-sonnet-4-5-20250929" ;; # Default fallback
+            esac
+            ;;
+        "minimax")
+            # MiniMax API models
+            case "$model_family" in
+                "sonnet"|"haiku"|"opus") echo "MiniMax-M2" ;; # All Claude models map to M2
+                "glm") echo "MiniMax-M2" ;; # GLM models map to M2
+                "minimax") echo "$model_name" ;; # Keep MiniMax models as-is
+                *) echo "MiniMax-M2" ;; # Default fallback
+            esac
+            ;;
+        "zai")
+            # Z.ai API - supports Anthropic model names
+            case "$model_family" in
+                "sonnet") echo "claude-sonnet-4-5-20250929" ;;
+                "haiku") echo "claude-haiku-4-5-20251001" ;;
+                "opus") echo "claude-opus-4-5-20250229" ;;
+                "glm") echo "claude-sonnet-4-5-20250929" ;; # GLM models fallback to sonnet
+                "minimax") echo "claude-sonnet-4-5-20250929" ;; # MiniMax models fallback to sonnet
+                *) echo "claude-sonnet-4-5-20250929" ;; # Default fallback
+            esac
+            ;;
+        "glm")
+            # GLM API models
+            case "$model_family" in
+                "sonnet") echo "glm-4.5" ;;
+                "haiku") echo "glm-4.5-air" ;;
+                "opus") echo "glm-4.5" ;;
+                "glm") echo "$model_name" ;; # Keep GLM models as-is
+                *) echo "glm-4.5" ;; # Default fallback
+            esac
+            ;;
+        *)
+            # Unknown provider - use safe defaults
+            echo "claude-sonnet-4-5-20250929"
+            ;;
+    esac
+}
+
+# Detect model family from model identifier
+detect_model_family() {
+    local model_name="$1"
+
+    case "$model_name" in
+        # Standard Anthropic models
+        *"claude-sonnet"*) echo "sonnet" ;;
+        *"claude-haiku"*) echo "haiku" ;;
+        *"claude-opus"*) echo "opus" ;;
+        # Short names
+        "sonnet"|"sonnet4"|"sonnet-4") echo "sonnet" ;;
+        "haiku"|"haiku4"|"haiku-4") echo "haiku" ;;
+        "opus"|"opus4"|"opus-4") echo "opus" ;;
+        # MiniMax models
+        *"MiniMax"*) echo "minimax" ;;
+        # GLM models
+        *"glm-"*) echo "glm" ;;
+        # Special cases
+        "<synthetic>") echo "synthetic" ;;
+        # Default fallback
+        *) echo "unknown" ;;
+    esac
+}
+
+# Detect model tier (performance level)
+detect_model_tier() {
+    local model_name="$1"
+    local model_family=$(detect_model_family "$model_name")
+
+    case "$model_family" in
+        "sonnet"|"opus") echo "high" ;;
+        "haiku") echo "medium" ;;
+        "glm") echo "medium" ;;
+        "minimax") echo "high" ;;
+        *) echo "medium" ;;
+    esac
+}
+
+# Extract model from session for analysis
+extract_session_model() {
+    local session_file="$1"
+
+    if [[ -f "$session_file" ]]; then
+        # Find the first assistant message with a model field
+        grep '"type":"assistant"' "$session_file" | head -1 | jq -r '.message.model // "unknown"' 2>/dev/null || echo "unknown"
+    else
+        echo "unknown"
+    fi
+}
+
+# Normalize session for API compatibility between providers
+transform_session_format() {
+    local session_file="$1"
+    local from_provider="$2"
+    local to_provider="$3"
+    local temp_file="${session_file}.tmp"
+
+    # Skip normalization if providers are compatible
+    if is_session_compatible "$from_provider" "$to_provider"; then
+        return 0
+    fi
+
+    log_info "Normalizing session for API compatibility: $from_provider → $to_provider"
+
+    # Extract original model for logging
+    local original_model=$(extract_session_model "$session_file")
+    local mapped_model=$(map_model_to_provider "$original_model" "$to_provider")
+
+    if [[ "$original_model" != "unknown" ]]; then
+        log_info "Model mapping: $original_model → $mapped_model"
+    fi
+
+    # Create backup of original
+    cp "$session_file" "${session_file}.api_backup"
+
+    # Process JSONL file line by line
+    while IFS= read -r line; do
+        # Skip empty lines
+        [[ -z "$line" ]] && continue
+
+        # Parse JSON and normalize for target provider
+        local transformed_line=$(echo "$line" | jq -c --arg mapped_model "$mapped_model" '
+            if .type == "assistant" and .message and .message.content then
+                # Remove cryptographic signatures from thinking blocks
+                # (these cause validation failures when switching providers)
+                .message.content = (.message.content | map(
+                    if .type == "thinking" then
+                        .signature = null |
+                        .thinking = "Session normalized for API compatibility"
+                    else
+                        .
+                    end
+                )) |
+                # Dynamic model mapping using detected model
+                if .message.model then
+                    .message.model = $mapped_model
+                end |
+                # Clear provider-specific request ID
+                if .requestId then
+                    .requestId = null
+                end |
+                # Clear usage metrics (provider-specific)
+                if .message.usage then
+                    .message.usage = null
+                end |
+                # Clear provider-specific metadata
+                if .stop_reason then
+                    .stop_reason = null
+                end |
+                # Clear stop sequence (provider-specific)
+                if .stop_sequence then
+                    .stop_sequence = null
+                end
+            else
+                .
+            end
+        ' 2>/dev/null || echo "$line")
+
+        echo "$transformed_line" >> "$temp_file"
+    done < "$session_file"
+
+    # Replace original with normalized
+    mv "$temp_file" "$session_file"
+    log_success "Session API-normalized: $(basename "$session_file")"
+}
+
+# Transform all sessions for provider compatibility
+transform_sessions() {
+    local from_provider="$1"
+    local to_provider="$2"
+
+    if [[ "$from_provider" == "none" ]] || [[ "$to_provider" == "none" ]]; then
+        return 0
+    fi
+
+    if is_session_compatible "$from_provider" "$to_provider"; then
+        log_info "Session compatible: $from_provider → $to_provider (no transformation needed)"
+        return 0
+    fi
+
+    log_info "Starting session transformation: $from_provider → $to_provider"
+
+    local transformed_count=0
+    local total_count=0
+
+    # Transform todo sessions
+    if [[ -d "$CLAUDE_TODO_DIR" ]]; then
+        for session_file in "$CLAUDE_TODO_DIR"/*.json; do
+            if [[ -f "$session_file" ]]; then
+                ((total_count++))
+                if transform_session_format "$session_file" "$from_provider" "$to_provider"; then
+                    ((transformed_count++))
+                fi
+            fi
+        done
+    fi
+
+    # Transform project sessions
+    if [[ -d "$CLAUDE_PROJECT_DIR" ]]; then
+        while IFS= read -r -d '' session_file; do
+            if [[ -f "$session_file" ]]; then
+                ((total_count++))
+                if transform_session_format "$session_file" "$from_provider" "$to_provider"; then
+                    ((transformed_count++))
+                fi
+            fi
+        done < <(find "$CLAUDE_PROJECT_DIR" -name "*.jsonl" -print0 2>/dev/null)
+    fi
+
+    if [[ $transformed_count -gt 0 ]]; then
+        log_success "Transformed $transformed_count/$total_count session files"
+    else
+        log_info "No sessions required transformation"
+    fi
+}
+
+# Test dynamic model mapping with various model types
+test_model_mapping() {
+    echo ""
+    log_info "Testing Dynamic Model Mapping System"
+    log_info "===================================="
+
+    local test_models=(
+        "claude-sonnet-4-5-20250929"
+        "claude-haiku-4-5-20251001"
+        "claude-opus-4-5-20250229"
+        "MiniMax-M2"
+        "glm-4.5"
+        "glm-4.5-air"
+        "sonnet"
+        "haiku"
+        "opus"
+        "<synthetic>"
+    )
+
+    local providers=("standard" "minimax" "zai" "glm")
+
+    echo "Testing model detection:"
+    for model in "${test_models[@]}"; do
+        local family=$(detect_model_family "$model")
+        local tier=$(detect_model_tier "$model")
+        printf "  %-30s → Family: %-8s | Tier: %-6s\n" "$model" "$family" "$tier"
+    done
+
+    echo ""
+    echo "Testing provider mapping (sample):"
+    for model in "${test_models[@]}"; do
+        printf "Model: %-25s\n" "$model"
+        for provider in "${providers[@]}"; do
+            local mapped=$(map_model_to_provider "$model" "$provider")
+            printf "  → %-10s: %s\n" "$provider" "$mapped"
+        done
+        echo ""
+    done
+
+    log_success "Model mapping test completed"
+}
+
+# Enhanced provider-agnostic session transformation
+transform_sessions_agnostic() {
+    local from_provider="$1"
+    local to_provider="$2"
+
+    if [[ "$from_provider" == "none" ]] || [[ "$to_provider" == "none" ]]; then
+        return 0
+    fi
+
+    log_info "Starting provider-agnostic session transformation"
+    log_info "Source: $from_provider → Target: $to_provider"
+
+    local transformed_count=0
+    local total_count=0
+    local models_found=()
+
+    # Collect all unique models in sessions
+    if [[ -d "$CLAUDE_TODO_DIR" ]]; then
+        for session_file in "$CLAUDE_TODO_DIR"/*.json; do
+            if [[ -f "$session_file" ]]; then
+                local model=$(extract_session_model "$session_file")
+                if [[ "$model" != "unknown" ]] && [[ ! " ${models_found[@]} " =~ " ${model} " ]]; then
+                    models_found+=("$model")
+                fi
+            fi
+        done
+    fi
+
+    if [[ -d "$CLAUDE_PROJECT_DIR" ]]; then
+        while IFS= read -r -d '' session_file; do
+            if [[ -f "$session_file" ]]; then
+                local model=$(extract_session_model "$session_file")
+                if [[ "$model" != "unknown" ]] && [[ ! " ${models_found[@]} " =~ " ${model} " ]]; then
+                    models_found+=("$model")
+                fi
+            fi
+        done < <(find "$CLAUDE_PROJECT_DIR" -name "*.jsonl" -print0 2>/dev/null)
+    fi
+
+    # Report discovered models
+    if [[ ${#models_found[@]} -gt 0 ]]; then
+        log_info "Discovered models in sessions:"
+        for model in "${models_found[@]}"; do
+            local family=$(detect_model_family "$model")
+            local mapped=$(map_model_to_provider "$model" "$to_provider")
+            printf "  • %-30s (%-8s) → %s\n" "$model" "$family" "$mapped"
+        done
+        echo ""
+    fi
+
+    # Transform sessions with detailed logging
+    if [[ -d "$CLAUDE_TODO_DIR" ]]; then
+        for session_file in "$CLAUDE_TODO_DIR"/*.json; do
+            if [[ -f "$session_file" ]]; then
+                ((total_count++))
+                if transform_session_format "$session_file" "$from_provider" "$to_provider"; then
+                    ((transformed_count++))
+                fi
+            fi
+        done
+    fi
+
+    if [[ -d "$CLAUDE_PROJECT_DIR" ]]; then
+        while IFS= read -r -d '' session_file; do
+            if [[ -f "$session_file" ]]; then
+                ((total_count++))
+                if transform_session_format "$session_file" "$from_provider" "$to_provider"; then
+                    ((transformed_count++))
+                fi
+            fi
+        done < <(find "$CLAUDE_PROJECT_DIR" -name "*.jsonl" -print0 2>/dev/null)
+    fi
+
+    if [[ $transformed_count -gt 0 ]]; then
+        log_success "Provider-agnostic transformation: $transformed_count/$total_count sessions"
+    else
+        log_info "No sessions required transformation"
+    fi
+}
+
+# Handle session compatibility with transformation support
+handle_session_compatibility() {
+    local target_provider="$1"
+    local current_provider=$(detect_session_provider)
+
+    # If no sessions, no action needed
+    if [[ "$current_provider" == "none" ]]; then
+        return 0
+    fi
+
+    # Check if sessions are compatible
+    if is_session_compatible "$current_provider" "$target_provider"; then
+        log_info "Session compatible: $current_provider → $target_provider"
+        return 0
+    fi
+
+    # Session is incompatible - offer transformation options
+    echo ""
+    echo -e "${YELLOW}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║                                                  ║${NC}"
+    echo -e "${YELLOW}║     Session Compatibility Detected                ║${NC}"
+    echo -e "${YELLOW}║                                                  ║${NC}"
+    echo -e "${YELLOW}╚══════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${YELLOW}Current sessions were created with: ${CYAN}$current_provider${NC}"
+    echo -e "${YELLOW}Target provider: ${CYAN}$target_provider${NC}"
+    echo ""
+    echo -e "${YELLOW}Without transformation, you may experience:${NC}"
+    echo "  • 'Unknown Model' errors (model name mismatch)"
+    echo "  • 'Invalid signature in thinking block' (crypto validation)"
+    echo "  • API endpoint validation failures"
+    echo ""
+    echo -e "${GREEN}Full Compatibility Options:${NC}"
+    echo "  1) 🔄 Transform sessions for full compatibility (recommended)"
+    echo "  2) 💾 Backup sessions, then transform"
+    echo "  3) 🗑️  Clear sessions and continue (loses conversation history)"
+    echo "  4) ⚠️  Continue without changes (may cause errors)"
+    echo ""
+
+    while true; do
+        read -p "Choose option [1-4]: " choice
+        echo ""
+
+        case $choice in
+            1)
+                log_info "Transforming sessions for full compatibility..."
+                if transform_sessions_agnostic "$current_provider" "$target_provider"; then
+                    log_success "✅ Sessions now compatible with $target_provider"
+                    return 0
+                else
+                    log_error "❌ Session transformation failed"
+                    return 1
+                fi
+                ;;
+            2)
+                create_session_backup_dir
+                log_info "Creating session backup..."
+                local backup_path=$(backup_sessions)
+                log_info "Transforming sessions for full compatibility..."
+                if transform_sessions "$current_provider" "$target_provider"; then
+                    log_success "✅ Sessions transformed and backed up"
+                    if [[ -n "$backup_path" ]]; then
+                        log_info "💾 Backup saved to: $backup_path"
+                        log_info "You can restore sessions later with:"
+                        echo "  cp -r '$backup_path'/* '$CLAUDE_SESSION_DIR'"
+                    fi
+                    return 0
+                else
+                    log_error "❌ Session transformation failed"
+                    return 1
+                fi
+                ;;
+            3)
+                log_info "Clearing incompatible sessions..."
+                clear_sessions
+                return 0
+                ;;
+            4)
+                log_warning "Continuing without session changes..."
+                log_warning "⚠️  You may experience errors with 'claude --continue'"
+                return 0
+                ;;
+            *)
+                echo -e "${RED}Invalid choice. Please enter 1, 2, 3, or 4.${NC}"
+                ;;
+        esac
+    done
 }
 
 # Backup current settings
@@ -226,6 +757,9 @@ swap_to_zai() {
 
     validate_credentials "Z.ai" "$ZAI_AUTH_TOKEN" || return 1
 
+    # Handle session compatibility first
+    handle_session_compatibility "zai"
+
     create_backup_dir
     backup_settings
 
@@ -237,9 +771,21 @@ swap_to_zai() {
         --arg auth_token "$ZAI_AUTH_TOKEN" \
         --arg base_url "$ZAI_BASE_URL" \
         --arg timeout "$ZAI_TIMEOUT" \
+        --arg disable_traffic "1" \
+        --arg model "claude-3-5-sonnet-20241022" \
+        --arg small_fast_model "claude-3-5-haiku-20241022" \
+        --arg sonnet_model "claude-3-5-sonnet-20241022" \
+        --arg opus_model "claude-3-opus-20240229" \
+        --arg haiku_model "claude-3-5-haiku-20241022" \
         '.env.ANTHROPIC_AUTH_TOKEN = $auth_token |
          .env.ANTHROPIC_BASE_URL = $base_url |
-         .env.API_TIMEOUT_MS = $timeout')
+         .env.API_TIMEOUT_MS = $timeout |
+         .env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = ($disable_traffic | tonumber) |
+         .env.ANTHROPIC_MODEL = $model |
+         .env.ANTHROPIC_SMALL_FAST_MODEL = $small_fast_model |
+         .env.ANTHROPIC_DEFAULT_SONNET_MODEL = $sonnet_model |
+         .env.ANTHROPIC_DEFAULT_OPUS_MODEL = $opus_model |
+         .env.ANTHROPIC_DEFAULT_HAIKU_MODEL = $haiku_model')
 
     # Validate JSON before writing
     if ! echo "$updated_json" | jq empty 2>/dev/null; then
@@ -254,6 +800,7 @@ swap_to_zai() {
     log_success "Successfully switched to Z.ai configuration"
     log_info "  ANTHROPIC_BASE_URL: $ZAI_BASE_URL"
     log_info "  API_TIMEOUT_MS: $ZAI_TIMEOUT"
+    log_info "  ANTHROPIC_MODEL: claude-3-5-sonnet-20241022"
 }
 
 # Swap to MiniMax configuration
@@ -261,6 +808,9 @@ swap_to_minimax() {
     log_info "Swapping to MiniMax configuration..."
 
     validate_credentials "MiniMax" "$MINIMAX_AUTH_TOKEN" || return 1
+
+    # Handle session compatibility first
+    handle_session_compatibility "minimax"
 
     create_backup_dir
     backup_settings
@@ -308,6 +858,9 @@ swap_to_minimax() {
 # Swap to standard Anthropic configuration
 swap_to_standard() {
     log_info "Swapping to standard Anthropic configuration..."
+
+    # Handle session compatibility first
+    handle_session_compatibility "standard"
 
     create_backup_dir
     backup_settings
@@ -369,6 +922,7 @@ restore_latest_backup() {
 # Show current status
 show_status() {
     local current=$(get_current_config)
+    local session_provider=$(detect_session_provider)
 
     echo ""
     echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
@@ -393,6 +947,24 @@ show_status() {
             ;;
     esac
 
+    # Show session status
+    echo ""
+    echo "Sessions:"
+    if [[ "$session_provider" == "none" ]]; then
+        echo -e "  Active sessions: ${YELLOW}None${NC}"
+    else
+        local session_count=$(ls -1 "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
+        echo -e "  Active sessions: ${GREEN}$session_count${NC} (created with $session_provider)"
+
+        # Check compatibility with current config
+        if is_session_compatible "$session_provider" "$current"; then
+            echo -e "  Session compatibility: ${GREEN}✓ Compatible${NC}"
+        else
+            echo -e "  Session compatibility: ${RED}✗ Incompatible with current config${NC}"
+            echo -e "  ${YELLOW}→ Run any swap command to fix session compatibility${NC}"
+        fi
+    fi
+
     if [[ -f "$SETTINGS_FILE" ]]; then
         local base_url=$(jq -r '.env.ANTHROPIC_BASE_URL // "(not set)"' "$SETTINGS_FILE")
         local timeout=$(jq -r '.env.API_TIMEOUT_MS // "(not set)"' "$SETTINGS_FILE")
@@ -411,8 +983,11 @@ show_status() {
     fi
 
     local backup_count=$(ls -1 "$BACKUP_DIR"/settings_*.json 2>/dev/null | wc -l | tr -d ' ')
+    local session_backup_count=$(ls -1d "$CLAUDE_SESSION_BACKUP_DIR"/session_backup_* 2>/dev/null 2>/dev/null | wc -l | tr -d ' ')
     echo ""
-    echo "Backups available: ${backup_count:-0}"
+    echo "Backups available:"
+    echo "  Settings backups: ${backup_count:-0}"
+    echo "  Session backups: ${session_backup_count:-0}"
 
     echo ""
     echo -e "${YELLOW}Configuration Check:${NC}"
@@ -422,6 +997,11 @@ show_status() {
     if [[ -z "$MINIMAX_AUTH_TOKEN" ]] && [[ "$current" != "zai" ]] && [[ "$current" != "standard" ]]; then
         echo -e "${YELLOW}  ⚠ MiniMax token not configured (set CLAUDE_MINIMAX_AUTH_TOKEN)${NC}"
     fi
+
+    echo ""
+    echo -e "${CYAN}Session Management Commands:${NC}"
+    echo "  claudeswap clear-sessions   # Clear all sessions"
+    echo "  claudeswap backup-sessions  # Backup current sessions"
 
     echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
     echo ""
@@ -438,11 +1018,18 @@ Commands:
   standard      Switch to standard Anthropic configuration
   status        Show current configuration status
   restore       Restore from latest backup
+  clear-sessions Clear all Claude session files
+  backup-sessions Backup current Claude sessions
+  test-models   Test dynamic model mapping system
   help          Show this help message
 
 Quick Start:
   Run any command and the tool will prompt you interactively if credentials are needed!
   (e.g., claudeswap zai or claudeswap minimax)
+
+Session Management:
+  The tool automatically detects incompatible sessions when switching providers
+  and offers options to clear, backup, or preserve sessions.
 
 Configuration:
   Method 1 - Interactive (Recommended):
@@ -509,6 +1096,16 @@ main() {
         restore)
             restore_latest_backup
             show_status
+            ;;
+        clear-sessions)
+            clear_sessions
+            ;;
+        backup-sessions)
+            create_session_backup_dir
+            backup_sessions
+            ;;
+        test-models)
+            test_model_mapping
             ;;
         help|-h|--help)
             show_usage
