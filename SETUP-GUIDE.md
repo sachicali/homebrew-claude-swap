@@ -89,14 +89,16 @@ Environment variables are shell variables that persist across terminal sessions.
 - Your key looks like: `sk-ant-api03-...`
 
 #### Z.ai
-- Contact Z.ai support for API access
-- You'll receive a token from them
-- This is different from standard Anthropic
+- Visit: https://z.ai/manage-apikey/apikey-list
+- Sign in or create account
+- Navigate to API key management
+- Create a new key
 
 #### MiniMax
-- Contact MiniMax for API access
-- You'll receive a JWT token
-- This is different from standard Anthropic
+- Visit: https://platform.minimax.io/user-center/basic-information/interface-key
+- Sign in or create account
+- Navigate to interface key section
+- Create a new key
 
 ### Security Best Practices
 

@@ -37,14 +37,14 @@ source ~/.zshrc
 
 ```bash
 # Install from the GitHub repository
-brew install chicali/claude-swap/claude-swap
+brew install sachicali/homebrew-cloud-swap/claude-swap
 ```
 
 ### Option 2: Manual Homebrew Formula
 
 1. Tap the repository:
 ```bash
-brew tap chicali/claude-swap
+brew tap sachicali/homebrew-cloud-swap
 ```
 
 2. Install the formula:
@@ -111,10 +111,10 @@ claude-swap help
 ## Where to Get API Tokens
 
 ### Z.ai
-Contact Z.ai for access to their API service.
+Visit: https://z.ai/manage-apikey/apikey-list
 
 ### MiniMax
-Contact MiniMax for API access and token.
+Visit: https://platform.minimax.io/user-center/basic-information/interface-key
 
 ### Standard Anthropic
 Your standard Anthropic API key: https://console.anthropic.com/
@@ -153,7 +153,7 @@ export CLAUDE_STANDARD_TIMEOUT="120000"  # 2 minutes
 
 ```bash
 brew uninstall claude-swap
-brew untap chicali/claude-swap
+brew untap sachicali/homebrew-cloud-swap
 ```
 
 ## Troubleshooting

@@ -97,10 +97,10 @@ claude-swap restore
 5. Copy the key (starts with `sk-ant-api03-`)
 
 ### Z.ai
-Contact Z.ai directly for API access and token.
+Visit: https://z.ai/manage-apikey/apikey-list
 
 ### MiniMax
-Contact MiniMax directly for API access and token.
+Visit: https://platform.minimax.io/user-center/basic-information/interface-key
 
 ## Security Notes
 
