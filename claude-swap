@@ -49,6 +49,79 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Interactive credential setup
+interactive_setup() {
+    local service="$1"
+    local var_name="$2"
+    local url="$3"
+
+    echo ""
+    echo -e "${YELLOW}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║                                                  ║${NC}"
+    echo -e "${YELLOW}║     $service Setup Required                   ║${NC}"
+    echo -e "${YELLOW}║                                                  ║${NC}"
+    echo -e "${YELLOW}╚══════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${BLUE}To get your $service API token:${NC}"
+    echo -e "  1. Visit: ${CYAN}$url${NC}"
+    echo -e "  2. Sign in or create an account"
+    echo -e "  3. Navigate to API key management"
+    echo -e "  4. Create a new API key"
+    echo -e "  5. Copy the token"
+    echo ""
+    echo -e "${GREEN}Please paste your $service API token below:${NC}"
+    echo -e "(Press ${CYAN}Ctrl+D${NC} when done, or ${CYAN}Enter${NC} then ${CYAN}Ctrl+D${NC} on a new line)"
+    echo ""
+
+    # Read token interactively
+    local token
+    IFS= read -r token
+
+    if [[ -z "$token" ]]; then
+        log_error "No token provided. Setup cancelled."
+        return 1
+    fi
+
+    # Show the token (partially masked)
+    local masked_token="${token:0:10}...${token: -4}"
+    echo ""
+    echo -e "${GREEN}✓${NC} Received token: ${masked_token}"
+    echo ""
+
+    # Ask if user wants to save to shell config
+    echo -e "${YELLOW}Would you like to save this to your shell config? (y/n)${NC}"
+    echo -e "This will add it to ${CYAN}$HOME/.zshrc${NC} (recommended)"
+    echo ""
+    read -p "Save to ~/.zshrc? (y/n) " -n 1 -r
+    echo ""
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        # Create backup
+        cp ~/.zshrc ~/.zshrc.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+
+        # Add to zshrc
+        echo "" >> ~/.zshrc
+        echo "# $service API Token - Added by claude-swap" >> ~/.zshrc
+        echo "export $var_name=\"$token\"" >> ~/.zshrc
+
+        echo -e "${GREEN}✓${NC} Token saved to ~/.zshrc"
+        echo ""
+        echo -e "${YELLOW}Important:${NC} Run ${CYAN}source ~/.zshrc${NC} or restart your terminal"
+        echo ""
+
+        # Set for current session
+        export "$var_name"="$token"
+    else
+        echo -e "${YELLOW}Note:${NC} Token is set for this session only."
+        echo -e "To use it permanently, add this to your ~/.zshrc:"
+        echo -e "${CYAN}export $var_name=\"$token\"${NC}"
+        echo ""
+        export "$var_name"="$token"
+    fi
+
+    return 0
+}
+
 # Validate credentials
 validate_credentials() {
     local service="$1"
@@ -57,20 +130,49 @@ validate_credentials() {
     if [[ -z "$token" ]] || [[ "$token" == "your-token-here" ]]; then
         log_error "$service credentials not configured!"
         echo ""
-        echo "To configure, set environment variables:"
+
+        # Offer interactive setup
+        echo -e "${BLUE}Would you like to set up $service interactively? (y/n)${NC}"
+        read -p "Interactive setup? (y/n) " -n 1 -r
         echo ""
-        if [[ "$service" == "Z.ai" ]]; then
-            echo "export CLAUDE_ZAI_AUTH_TOKEN=\"your-zai-token-here\""
-            echo "export CLAUDE_ZAI_BASE_URL=\"https://api.z.ai/api/anthropic\""
+
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            if [[ "$service" == "Z.ai" ]]; then
+                interactive_setup "Z.ai" "CLAUDE_ZAI_AUTH_TOKEN" "https://z.ai/manage-apikey/apikey-list"
+            elif [[ "$service" == "MiniMax" ]]; then
+                interactive_setup "MiniMax" "CLAUDE_MINIMAX_AUTH_TOKEN" "https://platform.minimax.io/user-center/basic-information/interface-key"
+            fi
+            # Refresh the token variable after interactive setup
+            if [[ "$service" == "Z.ai" ]]; then
+                token="${CLAUDE_ZAI_AUTH_TOKEN:-}"
+            elif [[ "$service" == "MiniMax" ]]; then
+                token="${CLAUDE_MINIMAX_AUTH_TOKEN:-}"
+            fi
+
+            # Check if still empty after interactive setup
+            if [[ -z "$token" ]]; then
+                log_error "Setup incomplete or cancelled."
+                return 1
+            fi
+        else
             echo ""
-            echo "Add these to your ~/.zshrc or ~/.bashrc"
-        elif [[ "$service" == "MiniMax" ]]; then
-            echo "export CLAUDE_MINIMAX_AUTH_TOKEN=\"your-minimax-token-here\""
-            echo "export CLAUDE_MINIMAX_BASE_URL=\"https://api.minimax.io/anthropic\""
+            echo "To configure manually, set environment variables:"
             echo ""
-            echo "Add these to your ~/.zshrc or ~/.bashrc"
+            if [[ "$service" == "Z.ai" ]]; then
+                echo "export CLAUDE_ZAI_AUTH_TOKEN=\"your-zai-token-here\""
+                echo "export CLAUDE_ZAI_BASE_URL=\"https://api.z.ai/api/anthropic\""
+                echo ""
+                echo "Add these to your ~/.zshrc or ~/.bashrc"
+            elif [[ "$service" == "MiniMax" ]]; then
+                echo "export CLAUDE_MINIMAX_AUTH_TOKEN=\"your-minimax-token-here\""
+                echo "export CLAUDE_MINIMAX_BASE_URL=\"https://api.minimax.io/anthropic\""
+                echo ""
+                echo "Add these to your ~/.zshrc or ~/.bashrc"
+            fi
+            echo ""
+            echo "Or run this command again and choose interactive setup."
+            return 1
         fi
-        return 1
     fi
     return 0
 }
@@ -338,22 +440,35 @@ Commands:
   restore       Restore from latest backup
   help          Show this help message
 
+Quick Start:
+  Run any command and the tool will prompt you interactively if credentials are needed!
+  (e.g., claude-swap zai or claude-swap minimax)
+
 Configuration:
-  Before using, set environment variables in your ~/.zshrc or ~/.bashrc:
+  Method 1 - Interactive (Recommended):
+    Just run a command and choose interactive setup when prompted
 
-  For Z.ai:
-    export CLAUDE_ZAI_AUTH_TOKEN="your-zai-token-here"
-    export CLAUDE_ZAI_BASE_URL="https://api.z.ai/api/anthropic"
+  Method 2 - Manual Setup:
+    Add to your ~/.zshrc or ~/.bashrc:
 
-  For MiniMax:
-    export CLAUDE_MINIMAX_AUTH_TOKEN="your-minimax-token-here"
-    export CLAUDE_MINIMAX_BASE_URL="https://api.minimax.io/anthropic"
+    For Z.ai:
+      export CLAUDE_ZAI_AUTH_TOKEN="your-zai-token-here"
+      export CLAUDE_ZAI_BASE_URL="https://api.z.ai/api/anthropic"
 
-  Then reload: source ~/.zshrc
+    For MiniMax:
+      export CLAUDE_MINIMAX_AUTH_TOKEN="your-minimax-token-here"
+      export CLAUDE_MINIMAX_BASE_URL="https://api.minimax.io/anthropic"
+
+    Then reload: source ~/.zshrc
+
+Where to get tokens:
+  Z.ai: https://z.ai/manage-apikey/apikey-list
+  MiniMax: https://platform.minimax.io/user-center/basic-information/interface-key
+  Standard Anthropic: https://console.anthropic.com/
 
 Examples:
-  claude-swap zai        # Switch to Z.ai
-  claude-swap minimax    # Switch to MiniMax
+  claude-swap zai        # Switch to Z.ai (interactive if not configured)
+  claude-swap minimax    # Switch to MiniMax (interactive if not configured)
   claude-swap standard   # Switch to standard Anthropic
   claude-swap status     # Show current config
   claude-swap restore    # Restore latest backup
