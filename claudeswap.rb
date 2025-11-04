@@ -22,10 +22,6 @@ class Claudeswap < Formula
       File.chmod(0755, sh)
     end
 
-    # Link the lib directory to bin (so claudeswap can find it)
-    bin.mkpath
-    ln_s "#{libexec}/lib", "#{bin}/lib"
-
     # Install the zsh completion file
     zsh_completion.install "claudeswap.zsh" => "_claudeswap"
 
