@@ -17,6 +17,10 @@ _commands=(
   "st:Show current configuration status (short)"
   "restore:Restore from latest backup"
   "help:Show help message"
+  "test-models:Test dynamic model mapping system"
+  "benchmark:Performance benchmark and optimization"
+  "clear-sessions:Clear all sessions"
+  "backup-sessions:Backup current sessions"
 )
 
 _describe "command" _commands

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # One-command installer for claudeswap via Homebrew
-# Usage: curl -fsSL https://raw.githubusercontent.com/chicali/homebrew-claudeswap/main/install-homebrew.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/sachicali/homebrew-claude-swap/main/install-homebrew.sh | bash
 
 set -euo pipefail
 
@@ -39,7 +39,7 @@ echo -e "${GREEN}✓${NC} jq is installed"
 echo ""
 
 # Tap the repository
-TAP_URL="chicali/claudeswap"
+TAP_URL="sachicali/homebrew-claude-swap"
 echo -e "${BLUE}Tapping ${TAP_URL}...${NC}"
 brew tap "$TAP_URL"
 

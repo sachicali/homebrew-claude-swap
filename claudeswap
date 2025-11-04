@@ -1,9 +1,18 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 
 # claudeswap: Safely swap between Z.ai, MiniMax, and standard Anthropic Claude configurations
 # Usage: claudeswap [zai|minimax|standard]
 
-set -euo pipefail
+# Check if we're running in zsh and set appropriate options
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    # Zsh options
+    set -e
+    set -u
+    set -o pipefail
+else
+    # Bash options
+    set -euo pipefail
+fi
 
 SETTINGS_FILE="$HOME/.claude/settings.json"
 BACKUP_DIR="$HOME/.claude/backups"
@@ -96,10 +105,11 @@ interactive_setup() {
     echo -e "${YELLOW}Would you like to save this to your shell config? (y/n)${NC}"
     echo -e "This will add it to ${CYAN}$HOME/.zshrc${NC} (recommended)"
     echo ""
-    read -p "Save to ~/.zshrc? (y/n) " -n 1 -r
+    printf "Save to ~/.zshrc? (y/n) "
+        read -r reply
     echo ""
 
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [[ $reply =~ ^[Yy]$ ]]; then
         # Create backup
         cp ~/.zshrc ~/.zshrc.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
 
@@ -137,10 +147,11 @@ validate_credentials() {
 
         # Offer interactive setup
         echo -e "${BLUE}Would you like to set up $service interactively? (y/n)${NC}"
-        read -p "Interactive setup? (y/n) " -n 1 -r
+        printf "Interactive setup? (y/n) "
+        read -r reply
         echo ""
 
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [[ $reply =~ ^[Yy]$ ]]; then
             if [[ "$service" == "Z.ai" ]]; then
                 interactive_setup "Z.ai" "CLAUDE_ZAI_AUTH_TOKEN" "https://z.ai/manage-apikey/apikey-list"
             elif [[ "$service" == "MiniMax" ]]; then
@@ -559,10 +570,10 @@ test_model_mapping() {
     local test_models=(
         "claude-sonnet-4-5-20250929"
         "claude-haiku-4-5-20251001"
-        "claude-opus-4-5-20250229"
         "MiniMax-M2"
         "glm-4.5"
         "glm-4.5-air"
+        "glm-4.6"
         "sonnet"
         "haiku"
         "opus"
@@ -712,7 +723,8 @@ handle_session_compatibility() {
     echo ""
 
     while true; do
-        read -p "Choose option [1-4]: " choice
+        printf "Choose option [1-4]: "
+        read -r choice
         echo ""
 
         case $choice in
@@ -868,18 +880,38 @@ fetch_available_models() {
         "zai"|"glm")
             log_info "Fetching available GLM models..."
 
-            # Extract GLM models from OpenRouter data
+            # Enhanced GLM model detection from OpenRouter data
             if [[ -n "$openrouter_models" ]]; then
                 while IFS='|' read -r model_id context_length prompt_price completion_price; do
-                    if [[ "$model_id" == *glm* ]] || [[ "$model_id" == zhipuai/* ]]; then
+                    # More comprehensive GLM model detection
+                    if [[ "$model_id" == *glm* ]] || [[ "$model_id" == zhipuai/* ]] || [[ "$model_id" == *chatglm* ]]; then
                         local clean_model="${model_id#*/}"
-                        # Convert OpenRouter naming to standard GLM naming
+
+                        # Enhanced model mapping with better GLM detection
                         case "$clean_model" in
-                            "glm-4.6"|"glm-4.6-exacto") models+=("glm-4.6") ;;
-                            "glm-4.5v"|"glm-4.5") models+=("glm-4.5") ;;
-                            "glm-4.5-air"|"glm-4.5-air:free") models+=("glm-4.5-air") ;;
-                            *glm-4*) models+=("glm-4") ;;
-                            *glm-3*) models+=("glm-3-turbo") ;;
+                            # Latest GLM models
+                            "glm-4.6"|"glm-4.6-exacto"|"glm-4.6-boost") models+=("glm-4.6") ;;
+                            "glm-4.5v"|"glm-4.5"|"glm-4.5-latest") models+=("glm-4.5") ;;
+                            "glm-4.5-air"|"glm-4.5-air:free"|"glm-4.5-air-int4") models+=("glm-4.5-air") ;;
+                            "glm-4"|"glm-4-latest") models+=("glm-4") ;;
+                            "glm-4-flash"|"glm-4-flashx") models+=("glm-4-flash") ;;
+                            # Older GLM models
+                            "glm-3-turbo"|"glm-3-turbo-latest") models+=("glm-3-turbo") ;;
+                            "chatglm3"|"chatglm3-6b") models+=("chatglm3") ;;
+                            "glm-130b"|"glm-6b") models+=("$clean_model") ;;
+                            # ZhipuAI specific naming
+                            *zhipuai*)
+                                # Extract just the model name from zhipuai paths
+                                local model_name="${clean_model##*/}"
+                                case "$model_name" in
+                                    *glm-4.6*) models+=("glm-4.6") ;;
+                                    *glm-4.5*) models+=("glm-4.5") ;;
+                                    *glm-4*) models+=("glm-4") ;;
+                                    *glm-3*) models+=("glm-3-turbo") ;;
+                                    *) models+=("$model_name") ;;
+                                esac
+                                ;;
+                            # Default fallback
                             *) models+=("$clean_model") ;;
                         esac
                     fi
@@ -898,9 +930,16 @@ fetch_available_models() {
                 done <<< "$zai_models"
             fi
 
-            # Final fallback to known GLM models
+            # Enhanced final fallback to best known GLM models (prioritized)
             if [[ ${#models[@]} -eq 0 ]]; then
-                models=("glm-4.6" "glm-4.5" "glm-4.5-air")
+                models=(
+                    "glm-4.6"           # Latest and most capable
+                    "glm-4.5"           # Previous stable version
+                    "glm-4.5-air"       # Lightweight version
+                    "glm-4"             # Stable workhorse
+                    "glm-3-turbo"       # Fast and efficient
+                    "chatglm3"          # Legacy support
+                )
             fi
             ;;
     esac
@@ -979,7 +1018,8 @@ select_model_interactive() {
 
     while true; do
         echo ""
-        read -p "Select model (1-${#available_models[@]}) or press Enter for default: " choice
+        printf "Select model (1-${#available_models[@]}) or press Enter for default: "
+        read -r choice
 
         if [[ -z "$choice" ]]; then
             # Default selection
