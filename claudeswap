@@ -1,1543 +1,225 @@
 #!/usr/bin/env bash
 
-# claudeswap: Safely swap between Z.ai, MiniMax, and standard Anthropic Claude configurations
-# Usage: claudeswap [zai|minimax|standard]
+# Claude Swap - Modular Configuration Manager
+# Main entry point script with TIGERSTYLE modular architecture
 
-# Check if we're running in zsh and set appropriate options
-if [[ -n "${ZSH_VERSION:-}" ]]; then
-    # Zsh options
-    set -e
-    set -u
-    set -o pipefail
-else
-    # Bash options
-    set -euo pipefail
-fi
+# Determine script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_DIR="$SCRIPT_DIR/lib"
+export CLAUDE_SWAP_BASE_DIR="$SCRIPT_DIR"
 
-SETTINGS_FILE="$HOME/.claude/settings.json"
-BACKUP_DIR="$HOME/.claude/backups"
-CLAUDE_SESSION_DIR="$HOME/.claude/todos"
-CLAUDE_TODO_DIR="$HOME/.claude/todos"
-CLAUDE_PROJECT_DIR="$HOME/.claude/projects"
-CLAUDE_SESSION_BACKUP_DIR="$HOME/.claude/session_backups"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+# Guard against multiple sourcing
+[[ -z "${CLAUDESWAP_LOADED:-}" ]] || return 0
+readonly CLAUDESWAP_LOADED=1
 
-# Color output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+# Source all modular components with absolute paths
+source "$LIB_DIR/constants.sh"
+source "$LIB_DIR/logging.sh"
+source "$LIB_DIR/utils/cache.sh"
+source "$LIB_DIR/utils/formatter.sh"
+source "$LIB_DIR/models.sh"
+source "$LIB_DIR/sessions.sh"
+source "$LIB_DIR/providers/model_fetch.sh"
+source "$LIB_DIR/credentials.sh"
 
-# Configuration profiles (use environment variables)
-# Users MUST set these before use
+# ============================================================================
+# COMMAND HANDLERS
+# ============================================================================
 
-# Get from environment or use default placeholder
-ZAI_BASE_URL="${CLAUDE_ZAI_BASE_URL:-https://api.z.ai/api/anthropic}"
-ZAI_AUTH_TOKEN="${CLAUDE_ZAI_AUTH_TOKEN:-}"
-ZAI_TIMEOUT="${CLAUDE_ZAI_TIMEOUT:-3000000}"
+handle_status() {
+    local current_provider=""
+    local current_model=""
 
-MINIMAX_BASE_URL="${CLAUDE_MINIMAX_BASE_URL:-https://api.minimax.io/anthropic}"
-MINIMAX_AUTH_TOKEN="${CLAUDE_MINIMAX_AUTH_TOKEN:-}"
-MINIMAX_TIMEOUT="${CLAUDE_MINIMAX_TIMEOUT:-3000000}"
-
-STANDARD_TIMEOUT="${CLAUDE_STANDARD_TIMEOUT:-120000}"
-
-# Helper functions
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Interactive credential setup
-interactive_setup() {
-    local service="$1"
-    local var_name="$2"
-    local url="$3"
-
-    echo ""
-    echo -e "${YELLOW}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║                                                  ║${NC}"
-    echo -e "${YELLOW}║     $service Setup Required                   ║${NC}"
-    echo -e "${YELLOW}║                                                  ║${NC}"
-    echo -e "${YELLOW}╚══════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${BLUE}To get your $service API token:${NC}"
-    echo -e "  1. Visit: ${CYAN}$url${NC}"
-    echo -e "  2. Sign in or create an account"
-    echo -e "  3. Navigate to API key management"
-    echo -e "  4. Create a new API key"
-    echo -e "  5. Copy the token"
-    echo ""
-    echo -e "${GREEN}Please paste your $service API token below:${NC}"
-    echo -e "(Press ${CYAN}Ctrl+D${NC} when done, or ${CYAN}Enter${NC} then ${CYAN}Ctrl+D${NC} on a new line)"
-    echo ""
-
-    # Read token interactively
-    local token
-    IFS= read -r token
-
-    if [[ -z "$token" ]]; then
-        log_error "No token provided. Setup cancelled."
-        return 1
-    fi
-
-    # Show the token (partially masked)
-    local masked_token="${token:0:10}...${token: -4}"
-    echo ""
-    echo -e "${GREEN}✓${NC} Received token: ${masked_token}"
-    echo ""
-
-    # Ask if user wants to save to shell config
-    echo -e "${YELLOW}Would you like to save this to your shell config? (y/n)${NC}"
-    echo -e "This will add it to ${CYAN}$HOME/.zshrc${NC} (recommended)"
-    echo ""
-    printf "Save to ~/.zshrc? (y/n) "
-        read -r reply
-    echo ""
-
-    if [[ $reply =~ ^[Yy]$ ]]; then
-        # Create backup
-        cp ~/.zshrc ~/.zshrc.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
-
-        # Add to zshrc
-        echo "" >> ~/.zshrc
-        echo "# $service API Token - Added by claudeswap" >> ~/.zshrc
-        echo "export $var_name=\"$token\"" >> ~/.zshrc
-
-        echo -e "${GREEN}✓${NC} Token saved to ~/.zshrc"
-        echo ""
-        echo -e "${YELLOW}Important:${NC} Run ${CYAN}source ~/.zshrc${NC} or restart your terminal"
-        echo ""
-
-        # Set for current session
-        export "$var_name"="$token"
-    else
-        echo -e "${YELLOW}Note:${NC} Token is set for this session only."
-        echo -e "To use it permanently, add this to your ~/.zshrc:"
-        echo -e "${CYAN}export $var_name=\"$token\"${NC}"
-        echo ""
-        export "$var_name"="$token"
-    fi
-
-    return 0
-}
-
-# Validate credentials
-validate_credentials() {
-    local service="$1"
-    local token="$2"
-
-    if [[ -z "$token" ]] || [[ "$token" == "your-token-here" ]]; then
-        log_error "$service credentials not configured!"
-        echo ""
-
-        # Offer interactive setup
-        echo -e "${BLUE}Would you like to set up $service interactively? (y/n)${NC}"
-        printf "Interactive setup? (y/n) "
-        read -r reply
-        echo ""
-
-        if [[ $reply =~ ^[Yy]$ ]]; then
-            if [[ "$service" == "Z.ai" ]]; then
-                interactive_setup "Z.ai" "CLAUDE_ZAI_AUTH_TOKEN" "https://z.ai/manage-apikey/apikey-list"
-            elif [[ "$service" == "MiniMax" ]]; then
-                interactive_setup "MiniMax" "CLAUDE_MINIMAX_AUTH_TOKEN" "https://platform.minimax.io/user-center/basic-information/interface-key"
-            fi
-            # Refresh the token variable after interactive setup
-            if [[ "$service" == "Z.ai" ]]; then
-                token="${CLAUDE_ZAI_AUTH_TOKEN:-}"
-            elif [[ "$service" == "MiniMax" ]]; then
-                token="${CLAUDE_MINIMAX_AUTH_TOKEN:-}"
-            fi
-
-            # Check if still empty after interactive setup
-            if [[ -z "$token" ]]; then
-                log_error "Setup incomplete or cancelled."
-                return 1
-            fi
-        else
-            echo ""
-            echo "To configure manually, set environment variables:"
-            echo ""
-            if [[ "$service" == "Z.ai" ]]; then
-                echo "export CLAUDE_ZAI_AUTH_TOKEN=\"your-zai-token-here\""
-                echo "export CLAUDE_ZAI_BASE_URL=\"https://api.z.ai/api/anthropic\""
-                echo ""
-                echo "Add these to your ~/.zshrc or ~/.bashrc"
-            elif [[ "$service" == "MiniMax" ]]; then
-                echo "export CLAUDE_MINIMAX_AUTH_TOKEN=\"your-minimax-token-here\""
-                echo "export CLAUDE_MINIMAX_BASE_URL=\"https://api.minimax.io/anthropic\""
-                echo ""
-                echo "Add these to your ~/.zshrc or ~/.bashrc"
-            fi
-            echo ""
-            echo "Or run this command again and choose interactive setup."
-            return 1
+    # Detect current provider
+    if [[ -f "$SETTINGS_FILE" ]]; then
+        current_provider=$(jq -r '.anthropic.api_key // empty' "$SETTINGS_FILE" 2>/dev/null | grep -q "sk-ant" && echo "standard" || echo "unknown")
+        if [[ "$current_provider" == "unknown" ]] && [[ -n "$ZAI_API_KEY" ]]; then
+            current_provider="zai"
+        fi
+        if [[ "$current_provider" == "unknown" ]] && [[ -n "$MINIMAX_API_KEY" ]]; then
+            current_provider="minimax"
         fi
     fi
-    return 0
-}
 
-# Session management
-
-# Create backup directory if it doesn't exist
-create_backup_dir() {
-    if [[ ! -d "$BACKUP_DIR" ]]; then
-        mkdir -p "$BACKUP_DIR"
-        log_info "Created backup directory: $BACKUP_DIR"
-    fi
-}
-
-# Create session backup directory
-create_session_backup_dir() {
-    if [[ ! -d "$CLAUDE_SESSION_BACKUP_DIR" ]]; then
-        mkdir -p "$CLAUDE_SESSION_BACKUP_DIR"
-    fi
-}
-
-# Detect current session provider type
-detect_session_provider() {
-    if [[ ! -d "$CLAUDE_SESSION_DIR" ]]; then
-        echo "none"
-        return
-    fi
-
-    # Check for any session files
-    local session_count=$(ls -1 "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
-    if [[ "$session_count" -eq 0 ]]; then
-        echo "none"
-        return
-    fi
-
-    # Read current settings to determine provider
-    local current_provider=$(get_current_config)
-    echo "$current_provider"
-}
-
-# Check if session is compatible between providers
-is_session_compatible() {
-    local from_provider="$1"
-    local to_provider="$2"
-
-    # Same provider is always compatible
-    if [[ "$from_provider" == "$to_provider" ]]; then
-        return 0  # Compatible
-    fi
-
-    # Z.ai and MiniMax are compatible (both proxy providers)
-    if [[ "$from_provider" == "zai" && "$to_provider" == "minimax" ]] || \
-       [[ "$from_provider" == "minimax" && "$to_provider" == "zai" ]]; then
-        return 0  # Compatible
-    fi
-
-    # Standard with others is not compatible due to thinking blocks
-    if [[ "$from_provider" == "standard" && "$to_provider" != "standard" ]] || \
-       [[ "$to_provider" == "standard" && "$from_provider" != "standard" ]]; then
-        return 1  # Not compatible
-    fi
-
-    return 0  # Default to compatible
-}
-
-# Backup current sessions
-backup_sessions() {
-    local backup_name="session_backup_$(date +%Y%m%d_%H%M%S)"
-    local backup_path="$CLAUDE_SESSION_BACKUP_DIR/$backup_name"
-
+    # Get current model
     if [[ -d "$CLAUDE_SESSION_DIR" ]] && [[ "$(ls -A "$CLAUDE_SESSION_DIR" 2>/dev/null)" ]]; then
-        cp -r "$CLAUDE_SESSION_DIR" "$backup_path"
-        log_success "Sessions backed up to: $backup_path"
-        echo "$backup_path"
-    else
-        log_info "No sessions to backup"
-        echo ""
-    fi
-}
-
-# Clear all sessions
-clear_sessions() {
-    if [[ -d "$CLAUDE_SESSION_DIR" ]]; then
-        local session_count=$(ls -1 "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
-        if [[ "$session_count" -gt 0 ]]; then
-            rm -f "$CLAUDE_SESSION_DIR"/*.json
-            log_success "Cleared $session_count session files"
-        else
-            log_info "No sessions to clear"
-        fi
-    fi
-}
-
-# Dynamic model detection and mapping for any model type
-map_model_to_provider() {
-    local model_name="$1"
-    local target_provider="$2"
-
-    # Detect model family and characteristics
-    local model_family=$(detect_model_family "$model_name")
-    local model_tier=$(detect_model_tier "$model_name")
-
-    # Map to target provider's equivalent model
-    case "$target_provider" in
-        "standard")
-            # Anthropic API - use exact model names
-            case "$model_family" in
-                "sonnet") echo "claude-sonnet-4-5-20250929" ;;
-                "haiku") echo "claude-haiku-4-5-20251001" ;;
-                "glm") echo "claude-sonnet-4-5-20250929" ;; # Fallback for GLM models
-                "minimax") echo "claude-sonnet-4-5-20250929" ;; # Fallback for MiniMax models
-                *) echo "claude-sonnet-4-5-20250929" ;; # Default fallback
-            esac
-            ;;
-        "minimax")
-            # MiniMax API models
-            case "$model_family" in
-                "sonnet"|"haiku"|"opus") echo "MiniMax-M2" ;; # All Claude models map to M2
-                "glm") echo "MiniMax-M2" ;; # GLM models map to M2
-                "minimax") echo "$model_name" ;; # Keep MiniMax models as-is
-                *) echo "MiniMax-M2" ;; # Default fallback
-            esac
-            ;;
-        "zai"|"glm")
-            # Z.ai GLM API (Z.ai provides GLM models)
-            case "$model_family" in
-                "sonnet") echo "glm-4.6" ;; # Map Claude Sonnet to GLM-4.6
-                "haiku") echo "glm-4.5-air" ;; # Map Claude Haiku to GLM-4.5-air
-                "glm") echo "$model_name" ;; # Keep GLM models as-is
-                "minimax") echo "glm-4.6" ;; # Map MiniMax to GLM-4.6
-                *) echo "glm-4.6" ;; # Default fallback to GLM-4.6
-            esac
-            ;;
-        *)
-            # Unknown provider - use safe defaults
-            echo "claude-sonnet-4-5-20250929"
-            ;;
-    esac
-}
-
-# Detect model family from model identifier
-detect_model_family() {
-    local model_name="$1"
-
-    case "$model_name" in
-        # Standard Anthropic models
-        *"claude-sonnet"*) echo "sonnet" ;;
-        *"claude-haiku"*) echo "haiku" ;;
-        # Short names
-        "sonnet"|"sonnet4"|"sonnet-4") echo "sonnet" ;;
-        "haiku"|"haiku4"|"haiku-4") echo "haiku" ;;
-        # MiniMax models
-        *"MiniMax"*) echo "minimax" ;;
-        # GLM models
-        *"glm-"*) echo "glm" ;;
-        # Special cases
-        "<synthetic>") echo "synthetic" ;;
-        # Default fallback
-        *) echo "unknown" ;;
-    esac
-}
-
-# Detect model tier (performance level)
-detect_model_tier() {
-    local model_name="$1"
-    local model_family=$(detect_model_family "$model_name")
-
-    case "$model_family" in
-        "sonnet"|"opus") echo "high" ;;
-        "haiku") echo "medium" ;;
-        "glm") echo "medium" ;;
-        "minimax") echo "high" ;;
-        *) echo "medium" ;;
-    esac
-}
-
-# Cache for model extraction to avoid repeated parsing (file-based for zsh compatibility)
-MODEL_CACHE_FILE="/tmp/claude_model_cache_$$"
-CACHE_SIZE_LIMIT=100
-
-# Extract model from session for analysis with caching
-extract_session_model() {
-    local session_file="$1"
-    local file_hash=$(stat -f "%m%z" "$session_file" 2>/dev/null || stat -c "%Y%s" "$session_file" 2>/dev/null || echo "0")
-
-    # Check cache first
-    local cache_key="${session_file}:${file_hash}"
-
-    # Check file cache
-    if [[ -f "$MODEL_CACHE_FILE" ]]; then
-        local cached_model=$(grep "^${cache_key}:" "$MODEL_CACHE_FILE" 2>/dev/null | cut -d: -f2-)
-        if [[ -n "$cached_model" ]]; then
-            echo "$cached_model"
-            return 0
+        local latest_session=$(ls -t "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | head -1)
+        if [[ -n "$latest_session" ]]; then
+            current_model=$(extract_session_model "$latest_session")
         fi
     fi
 
-    # Extract model (optimized - read only first few KB)
-    local model="unknown"
-    if [[ -f "$session_file" ]]; then
-        # Read only first 8KB for speed (most models are in early messages)
-        model=$(head -c 8192 "$session_file" 2>/dev/null | \
-            grep '"type":"assistant"' | head -1 | \
-            jq -r '.message.model // "unknown"' 2>/dev/null || echo "unknown")
-    fi
-
-    # Update file cache (with size management)
-    echo "${cache_key}:${model}" >> "$MODEL_CACHE_FILE" 2>/dev/null || true
-
-    # Trim cache file if it gets too large
-    local cache_lines=$(wc -l < "$MODEL_CACHE_FILE" 2>/dev/null || echo 0)
-    if [[ $cache_lines -gt $CACHE_SIZE_LIMIT ]]; then
-        tail -n $((CACHE_SIZE_LIMIT / 2)) "$MODEL_CACHE_FILE" > "${MODEL_CACHE_FILE}.tmp" 2>/dev/null || true
-        mv "${MODEL_CACHE_FILE}.tmp" "$MODEL_CACHE_FILE" 2>/dev/null || true
-    fi
-
-    echo "$model"
-}
-
-# Normalize session for API compatibility between providers
-transform_session_format() {
-    local session_file="$1"
-    local from_provider="$2"
-    local to_provider="$3"
-    local temp_file="${session_file}.tmp"
-
-    # Skip normalization if providers are compatible
-    if is_session_compatible "$from_provider" "$to_provider"; then
-        return 0
-    fi
-
-    log_info "Normalizing session for API compatibility: $from_provider → $to_provider"
-
-    # Extract original model for logging
-    local original_model=$(extract_session_model "$session_file")
-    local mapped_model=$(map_model_to_provider "$original_model" "$to_provider")
-
-    if [[ "$original_model" != "unknown" ]]; then
-        log_info "Model mapping: $original_model → $mapped_model"
-    fi
-
-    # Create backup of original
-    cp "$session_file" "${session_file}.api_backup"
-
-    # Optimized JSONL processing with bulk operations
-    # Create a single jq script for all transformations (much faster)
-    local jq_script="
-        if .type == \"assistant\" and .message and .message.content then
-            # Remove signatures from thinking blocks
-            .message.content = (.message.content | map(
-                if .type == \"thinking\" then
-                    .signature = null |
-                    .thinking = \"Session normalized for API compatibility\"
-                else
-                    .
-                end
-            )) |
-            # Map model dynamically
-            if .message.model then
-                .message.model = \"$mapped_model\"
-            end |
-            # Clear provider-specific fields in one pass
-            del(.requestId, .message.usage, .stop_reason, .stop_sequence)
-        else
-            .
-        end
-    "
-
-    # Process file with single jq invocation (much faster than line-by-line)
-    jq -c "$jq_script" "$session_file" 2>/dev/null > "$temp_file" || {
-        # Fallback to original line-by-line if bulk processing fails
-        log_warn "Bulk processing failed, using fallback method"
-        cp "$session_file" "$temp_file"
-        while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            local transformed_line=$(echo "$line" | jq -c --arg mapped_model "$mapped_model" '
-                if .type == "assistant" and .message and .message.content then
-                    .message.content = (.message.content | map(
-                        if .type == "thinking" then
-                            .signature = null |
-                            .thinking = "Session normalized for API compatibility"
-                        else
-                            .
-                        end
-                    )) |
-                    if .message.model then
-                        .message.model = $mapped_model
-                    end |
-                    del(.requestId, .message.usage, .stop_reason, .stop_sequence)
-                else
-                    .
-                end
-            ' 2>/dev/null || echo "$line")
-            echo "$transformed_line"
-        done < "$session_file" > "$temp_file"
-    }
-
-    # Replace original with normalized
-    mv "$temp_file" "$session_file"
-    log_success "Session API-normalized: $(basename "$session_file")"
-}
-
-# Optimized session transformation with parallel processing
-transform_sessions() {
-    local from_provider="$1"
-    local to_provider="$2"
-
-    if [[ "$from_provider" == "none" ]] || [[ "$to_provider" == "none" ]]; then
-        return 0
-    fi
-
-    if is_session_compatible "$from_provider" "$to_provider"; then
-        log_info "Session compatible: $from_provider → $to_provider (no transformation needed)"
-        return 0
-    fi
-
-    log_info "Starting optimized session transformation: $from_provider → $to_provider"
-
-    local transformed_count=0
-    local total_count=0
-    local session_files=()
-
-    # Collect all session files first (faster than repeated find operations)
-    if [[ -d "$CLAUDE_TODO_DIR" ]]; then
-        for session_file in "$CLAUDE_TODO_DIR"/*.json; do
-            if [[ -f "$session_file" ]]; then
-                session_files+=("$session_file")
-            fi
-        done
-    fi
-
-    if [[ -d "$CLAUDE_PROJECT_DIR" ]]; then
-        while IFS= read -r -d '' session_file; do
-            if [[ -f "$session_file" ]]; then
-                session_files+=("$session_file")
-            fi
-        done < <(find "$CLAUDE_PROJECT_DIR" -name "*.jsonl" -print0 2>/dev/null)
-    fi
-
-    total_count=${#session_files[@]}
-
-    # Use parallel processing for better performance
-    if command -v parallel &> /dev/null && [[ $total_count -gt 4 ]]; then
-        log_info "Using parallel processing for $total_count session files"
-        transformed_count=$(printf '%s\n' "${session_files[@]}" | \
-            parallel -j $(nproc 2>/dev/null || echo 4) \
-            "transform_session_format '{}' '$from_provider' '$to_provider' 2>/dev/null && echo 1 || echo 0" | \
-            awk '{sum += $1} END {print sum}')
-    else
-        # Fallback to sequential processing with progress indication
-        local processed=0
-        for session_file in "${session_files[@]}"; do
-            ((processed++))
-            if [[ $total_count -gt 10 ]]; then
-                # Show progress only for larger sets
-                printf "\r  Progress: %d/%d (%d%%)" "$processed" "$total_count" "$((processed * 100 / total_count))"
-            fi
-
-            if transform_session_format "$session_file" "$from_provider" "$to_provider"; then
-                ((transformed_count++))
-            fi
-        done
-        [[ $total_count -gt 10 ]] && echo ""
-    fi
-
-    if [[ $transformed_count -gt 0 ]]; then
-        log_success "Transformed $transformed_count/$total_count session files"
-    else
-        log_info "No sessions required transformation"
-    fi
-}
-
-# Test dynamic model mapping with various model types
-test_model_mapping() {
+    # Display status
     echo ""
-    log_info "Testing Dynamic Model Mapping System"
-    log_info "===================================="
-
-    local test_models=(
-        "claude-sonnet-4-5-20250929"
-        "claude-haiku-4-5-20251001"
-        "MiniMax-M2"
-        "glm-4.5"
-        "glm-4.5-air"
-        "glm-4.6"
-        "sonnet"
-        "haiku"
-        "opus"
-        "<synthetic>"
-    )
-
-    local providers=("standard" "minimax" "zai" "glm")
-
-    echo "Testing model detection:"
-    for model in "${test_models[@]}"; do
-        local family=$(detect_model_family "$model")
-        local tier=$(detect_model_tier "$model")
-        printf "  %-30s → Family: %-8s | Tier: %-6s\n" "$model" "$family" "$tier"
-    done
-
-    echo ""
-    echo "Testing provider mapping (sample):"
-    for model in "${test_models[@]}"; do
-        printf "Model: %-25s\n" "$model"
-        for provider in "${providers[@]}"; do
-            local mapped=$(map_model_to_provider "$model" "$provider")
-            printf "  → %-10s: %s\n" "$provider" "$mapped"
-        done
-        echo ""
-    done
-
-    log_success "Model mapping test completed"
-}
-
-# Enhanced provider-agnostic session transformation
-transform_sessions_agnostic() {
-    local from_provider="$1"
-    local to_provider="$2"
-
-    if [[ "$from_provider" == "none" ]] || [[ "$to_provider" == "none" ]]; then
-        return 0
-    fi
-
-    log_info "Starting provider-agnostic session transformation"
-    log_info "Source: $from_provider → Target: $to_provider"
-
-    local transformed_count=0
-    local total_count=0
-    local models_found=()
-
-    # Collect all unique models in sessions
-    if [[ -d "$CLAUDE_TODO_DIR" ]]; then
-        for session_file in "$CLAUDE_TODO_DIR"/*.json; do
-            if [[ -f "$session_file" ]]; then
-                local model=$(extract_session_model "$session_file")
-                if [[ "$model" != "unknown" ]] && [[ ! " ${models_found[@]} " =~ " ${model} " ]]; then
-                    models_found+=("$model")
-                fi
-            fi
-        done
-    fi
-
-    if [[ -d "$CLAUDE_PROJECT_DIR" ]]; then
-        while IFS= read -r -d '' session_file; do
-            if [[ -f "$session_file" ]]; then
-                local model=$(extract_session_model "$session_file")
-                if [[ "$model" != "unknown" ]] && [[ ! " ${models_found[@]} " =~ " ${model} " ]]; then
-                    models_found+=("$model")
-                fi
-            fi
-        done < <(find "$CLAUDE_PROJECT_DIR" -name "*.jsonl" -print0 2>/dev/null)
-    fi
-
-    # Report discovered models
-    if [[ ${#models_found[@]} -gt 0 ]]; then
-        log_info "Discovered models in sessions:"
-        for model in "${models_found[@]}"; do
-            local family=$(detect_model_family "$model")
-            local mapped=$(map_model_to_provider "$model" "$to_provider")
-            printf "  • %-30s (%-8s) → %s\n" "$model" "$family" "$mapped"
-        done
-        echo ""
-    fi
-
-    # Transform sessions with detailed logging
-    if [[ -d "$CLAUDE_TODO_DIR" ]]; then
-        for session_file in "$CLAUDE_TODO_DIR"/*.json; do
-            if [[ -f "$session_file" ]]; then
-                ((total_count++))
-                if transform_session_format "$session_file" "$from_provider" "$to_provider"; then
-                    ((transformed_count++))
-                fi
-            fi
-        done
-    fi
-
-    if [[ -d "$CLAUDE_PROJECT_DIR" ]]; then
-        while IFS= read -r -d '' session_file; do
-            if [[ -f "$session_file" ]]; then
-                ((total_count++))
-                if transform_session_format "$session_file" "$from_provider" "$to_provider"; then
-                    ((transformed_count++))
-                fi
-            fi
-        done < <(find "$CLAUDE_PROJECT_DIR" -name "*.jsonl" -print0 2>/dev/null)
-    fi
-
-    if [[ $transformed_count -gt 0 ]]; then
-        log_success "Provider-agnostic transformation: $transformed_count/$total_count sessions"
-    else
-        log_info "No sessions required transformation"
-    fi
-}
-
-# Handle session compatibility with transformation support
-handle_session_compatibility() {
-    local target_provider="$1"
-    local current_provider=$(detect_session_provider)
-
-    # If no sessions, no action needed
-    if [[ "$current_provider" == "none" ]]; then
-        return 0
-    fi
-
-    # Check if sessions are compatible
-    if is_session_compatible "$current_provider" "$target_provider"; then
-        log_info "Session compatible: $current_provider → $target_provider"
-        return 0
-    fi
-
-    # Session is incompatible - offer transformation options
-    echo ""
-    echo -e "${YELLOW}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║                                                  ║${NC}"
-    echo -e "${YELLOW}║     Session Compatibility Detected                ║${NC}"
-    echo -e "${YELLOW}║                                                  ║${NC}"
-    echo -e "${YELLOW}╚══════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${YELLOW}Current sessions were created with: ${CYAN}$current_provider${NC}"
-    echo -e "${YELLOW}Target provider: ${CYAN}$target_provider${NC}"
-    echo ""
-    echo -e "${YELLOW}Without transformation, you may experience:${NC}"
-    echo "  • 'Unknown Model' errors (model name mismatch)"
-    echo "  • 'Invalid signature in thinking block' (crypto validation)"
-    echo "  • API endpoint validation failures"
-    echo ""
-    echo -e "${GREEN}Full Compatibility Options:${NC}"
-    echo "  1) 🔄 Transform sessions for full compatibility (recommended)"
-    echo "  2) 💾 Backup sessions, then transform"
-    echo "  3) 🗑️  Clear sessions and continue (loses conversation history)"
-    echo "  4) ⚠️  Continue without changes (may cause errors)"
+    echo "┌──────────────────────────────────────────┐"
+    echo "│           CLAUDE SWAP STATUS             │"
+    echo "├──────────────────────────────────────────┤"
+    echo "│ Provider:  ${current_provider:-none}                │"
+    echo "│ Model:     ${current_model:-unknown}           │"
+    echo "│ Sessions:  $(ls -1 "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ') session files              │"
+    echo "└──────────────────────────────────────────┘"
     echo ""
 
-    while true; do
-        printf "Choose option [1-4]: "
-        read -r choice
-        echo ""
-
-        case $choice in
-            1)
-                log_info "Transforming sessions for full compatibility..."
-                if transform_sessions_agnostic "$current_provider" "$target_provider"; then
-                    log_success "✅ Sessions now compatible with $target_provider"
-                    return 0
-                else
-                    log_error "❌ Session transformation failed"
-                    return 1
-                fi
-                ;;
-            2)
-                create_session_backup_dir
-                log_info "Creating session backup..."
-                local backup_path=$(backup_sessions)
-                log_info "Transforming sessions for full compatibility..."
-                if transform_sessions "$current_provider" "$target_provider"; then
-                    log_success "✅ Sessions transformed and backed up"
-                    if [[ -n "$backup_path" ]]; then
-                        log_info "💾 Backup saved to: $backup_path"
-                        log_info "You can restore sessions later with:"
-                        echo "  cp -r '$backup_path'/* '$CLAUDE_SESSION_DIR'"
-                    fi
-                    return 0
-                else
-                    log_error "❌ Session transformation failed"
-                    return 1
-                fi
-                ;;
-            3)
-                log_info "Clearing incompatible sessions..."
-                clear_sessions
-                return 0
-                ;;
-            4)
-                log_warning "Continuing without session changes..."
-                log_warning "⚠️  You may experience errors with 'claude --continue'"
-                return 0
-                ;;
-            *)
-                echo -e "${RED}Invalid choice. Please enter 1, 2, 3, or 4.${NC}"
-                ;;
-        esac
-    done
+    # Show available providers
+    echo "Available providers:"
+    echo "  • standard - Anthropic API (claude-3-5-sonnet, claude-3-haiku)"
+    echo "  • zai      - Z.ai API (GLM models: glm-4.6, glm-4.5)"
+    echo "  • minimax  - MiniMax API (MiniMax-M2, MiniMax-M1)"
+    echo ""
 }
 
-# Backup current settings
-backup_settings() {
-    if [[ ! -f "$SETTINGS_FILE" ]]; then
-        log_error "Settings file not found: $SETTINGS_FILE"
-        return 1
-    fi
-
-    local backup_file="$BACKUP_DIR/settings_${TIMESTAMP}.json"
-    cp "$SETTINGS_FILE" "$backup_file"
-    log_success "Backed up settings to: $backup_file"
-
-    # Keep only last 10 backups
-    ls -t "$BACKUP_DIR"/settings_*.json | tail -n +11 | xargs -r rm
-}
-
-# Get current configuration type
-get_current_config() {
-    if [[ ! -f "$SETTINGS_FILE" ]]; then
-        echo "none"
-        return
-    fi
-
-    local base_url=$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$SETTINGS_FILE")
-
-    if [[ "$base_url" == "https://api.z.ai/api/anthropic" ]]; then
-        echo "zai"
-    elif [[ "$base_url" == "https://api.minimax.io/anthropic" ]]; then
-        echo "minimax"
-    elif [[ -z "$base_url" ]] || [[ "$base_url" == "null" ]]; then
-        echo "standard"
-    else
-        echo "unknown"
-    fi
-}
-
-# Fetch available models from providers dynamically
-# Enhanced model fetching using OpenRouter as reference
-fetch_available_models() {
-    local provider="$1"
+handle_test_models() {
+    local provider="${1:-}"
     local models=()
 
-    # Get OpenRouter model list as reference (public, no auth needed)
-    local openrouter_models=""
-    if command -v curl >/dev/null 2>&1; then
-        openrouter_models=$(curl -s --max-time 15 \
-            "https://openrouter.ai/api/v1/models" 2>/dev/null | \
-            jq -r '.data[] | "\(.id)|\(.context_length)|\(.pricing.prompt)|\(.pricing.completion)"' 2>/dev/null || echo "")
+    if [[ -z "$provider" ]]; then
+        log_info "Testing all providers..."
+        for prov in standard zai minimax; do
+            log_info "Checking $prov models..."
+            local prov_models=($(fetch_available_models "$prov"))
+            echo "  $prov: ${prov_models[*]:-none}"
+        done
+    else
+        models=($(fetch_available_models "$provider"))
+        echo "Available models for $provider:"
+        for model in "${models[@]}"; do
+            echo "  • $model$(get_model_details "$model" "$provider")"
+        done
+    fi
+}
+
+handle_set() {
+    local provider="$1"
+    local model="$2"
+
+    validate_provider "$provider" || return 1
+
+    # Map model to provider's equivalent
+    if [[ -n "$model" ]]; then
+        model=$(map_model_to_provider "$model" "$provider")
     fi
 
     case "$provider" in
         "standard")
-            log_info "Fetching available Anthropic models..."
-
-            # Extract Anthropic models from OpenRouter data
-            if [[ -n "$openrouter_models" ]]; then
-                while IFS='|' read -r model_id context_length prompt_price completion_price; do
-                    if [[ "$model_id" == anthropic/* ]]; then
-                        local clean_model="${model_id#anthropic/}"
-                        # Convert OpenRouter naming to Anthropic API naming
-                        case "$clean_model" in
-                            "claude-sonnet-4.5") models+=("claude-sonnet-4-5-20250929") ;;
-                            "claude-haiku-4.5") models+=("claude-haiku-4-5-20251001") ;;
-                            "claude-opus-4.1") models+=("claude-opus-4.1") ;;
-                            "claude-opus-4") models+=("claude-opus-4") ;;
-                            *) models+=("$clean_model") ;;
-                        esac
-                    fi
-                done <<< "$openrouter_models"
-            fi
-
-            # Try direct Anthropic docs as backup
-            if [[ -z "${models:-}" ]] || [[ ${#models[@]} -eq 0 ]] && command -v curl >/dev/null 2>&1; then
-                local docs_models=$(curl -s --max-time 10 \
-                    "https://docs.anthropic.com/en/api/models" 2>/dev/null | \
-                    grep -oE "claude-[a-z]+-[0-9-]+" | sort -u | head -10)
-
-                while IFS= read -r model; do
-                    [[ -n "$model" ]] && models+=("$model")
-                done <<< "$docs_models"
-            fi
-
-            # Final fallback to known current models
-            if [[ -z "${models:-}" ]] || [[ ${#models[@]} -eq 0 ]]; then
-                models=("claude-sonnet-4-5-20250929" "claude-haiku-4-5-20251001")
-            fi
+            setup_anthropic_credentials
+            ;;
+        "zai")
+            setup_zai_credentials
             ;;
         "minimax")
-            log_info "Fetching available MiniMax models..."
-
-            # Extract MiniMax models from OpenRouter data
-            if [[ -n "$openrouter_models" ]]; then
-                while IFS='|' read -r model_id context_length prompt_price completion_price; do
-                    if [[ "$model_id" == minimax/* ]] || [[ "$model_id" == *minimax* ]]; then
-                        local clean_model="${model_id#*/}"
-                        models+=("$clean_model")
-                    fi
-                done <<< "$openrouter_models"
-            fi
-
-            # Fallback to known MiniMax models
-            if [[ -z "${models:-}" ]] || [[ ${#models[@]} -eq 0 ]]; then
-                models=("MiniMax-M2" "MiniMax-M1")
-            fi
-            ;;
-        "zai"|"glm")
-            log_info "Fetching available GLM models..."
-
-            # Enhanced GLM model detection from OpenRouter data
-            if [[ -n "$openrouter_models" ]]; then
-                while IFS='|' read -r model_id context_length prompt_price completion_price; do
-                    # More comprehensive GLM model detection
-                    if [[ "$model_id" == *glm* ]] || [[ "$model_id" == zhipuai/* ]] || [[ "$model_id" == *chatglm* ]]; then
-                        local clean_model="${model_id#*/}"
-
-                        # Enhanced model mapping with better GLM detection
-                        case "$clean_model" in
-                            # Latest GLM models
-                            "glm-4.6"|"glm-4.6-exacto"|"glm-4.6-boost") models+=("glm-4.6") ;;
-                            "glm-4.5v"|"glm-4.5"|"glm-4.5-latest") models+=("glm-4.5") ;;
-                            "glm-4.5-air"|"glm-4.5-air:free"|"glm-4.5-air-int4") models+=("glm-4.5-air") ;;
-                            "glm-4"|"glm-4-latest") models+=("glm-4") ;;
-                            "glm-4-flash"|"glm-4-flashx") models+=("glm-4-flash") ;;
-                            # Older GLM models
-                            "glm-3-turbo"|"glm-3-turbo-latest") models+=("glm-3-turbo") ;;
-                            "chatglm3"|"chatglm3-6b") models+=("chatglm3") ;;
-                            "glm-130b"|"glm-6b") models+=("$clean_model") ;;
-                            # ZhipuAI specific naming
-                            *zhipuai*)
-                                # Extract just the model name from zhipuai paths
-                                local model_name="${clean_model##*/}"
-                                case "$model_name" in
-                                    *glm-4.6*) models+=("glm-4.6") ;;
-                                    *glm-4.5*) models+=("glm-4.5") ;;
-                                    *glm-4*) models+=("glm-4") ;;
-                                    *glm-3*) models+=("glm-3-turbo") ;;
-                                    *) models+=("$model_name") ;;
-                                esac
-                                ;;
-                            # Default fallback
-                            *) models+=("$clean_model") ;;
-                        esac
-                    fi
-                done <<< "$openrouter_models"
-            fi
-
-            # Try Z.ai API directly if we have auth
-            if [[ -z "${models:-}" ]] || [[ ${#models[@]} -eq 0 ]] && command -v curl >/dev/null 2>&1 && [[ -n "$ZAI_AUTH_TOKEN" ]]; then
-                local zai_models=$(curl -s --max-time 10 \
-                    -H "Authorization: Bearer $ZAI_AUTH_TOKEN" \
-                    "$ZAI_BASE_URL/v1/models" 2>/dev/null | \
-                    jq -r '.data[].id // empty' 2>/dev/null | grep glm || echo "")
-
-                while IFS= read -r model; do
-                    [[ -n "$model" ]] && models+=("$model")
-                done <<< "$zai_models"
-            fi
-
-            # Enhanced final fallback to best known GLM models (prioritized)
-            if [[ -z "${models:-}" ]] || [[ ${#models[@]} -eq 0 ]]; then
-                models=(
-                    "glm-4.6"           # Latest and most capable
-                    "glm-4.5"           # Previous stable version
-                    "glm-4.5-air"       # Lightweight version
-                    "glm-4"             # Stable workhorse
-                    "glm-3-turbo"       # Fast and efficient
-                    "chatglm3"          # Legacy support
-                )
-            fi
+            setup_minimax_credentials
             ;;
     esac
 
-    # Remove duplicates and sort (compatible with bash and zsh)
-    local unique_models=()
-    # Safe array iteration that works in both bash and zsh
-    if [[ ${#models[@]} -gt 0 ]]; then
-        for model in "${models[@]}"; do
-            local found=0
-            for existing in "${unique_models[@]}"; do
-                if [[ "$existing" == "$model" ]]; then
-                    found=1
-                    break
-                fi
-            done
-            if [[ $found -eq 0 ]]; then
-                unique_models+=("$model")
-            fi
-        done
+    # Update settings file
+    if [[ ! -d "$(dirname "$SETTINGS_FILE")" ]]; then
+        mkdir -p "$(dirname "$SETTINGS_FILE")"
     fi
 
-    printf '%s\n' "${unique_models[@]}"
+    jq ".anthropic.api_key = \"$ANTHROPIC_API_KEY\"" "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" 2>/dev/null || true
+    mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+
+    log_success "Switched to $provider$([[ -n "$model" ]] && echo " (model: $model")"
 }
 
-# Get detailed model information from OpenRouter data
-get_model_details() {
-    local model_name="$1"
-    local provider="$2"
-    local details=""
+handle_setup() {
+    setup_credentials_interactive
+}
 
-    if command -v curl >/dev/null 2>&1; then
-        local openrouter_data=$(curl -s --max-time 10 \
-            "https://openrouter.ai/api/v1/models" 2>/dev/null | \
-            jq -r ".data[] | select(.id == \"$provider/$model_name\" or .id == \"$model_name\") | \"\(.context_length)|\(.pricing.prompt)|\(.pricing.completion)\"" 2>/dev/null)
-
-        if [[ -n "$openrouter_data" ]]; then
-            IFS='|' read -r context_length prompt_price completion_price <<< "$openrouter_data"
-
-            if [[ -n "$context_length" ]] && [[ "$context_length" != "null" ]]; then
-                # Format context length in human-readable form (portable alternative to numfmt)
-                local context_num="$context_length"
-                if [[ "$context_length" -gt 1000000 ]]; then
-                    context_num="$(($context_length / 1000000))M"
-                elif [[ "$context_length" -gt 1000 ]]; then
-                    context_num="$(($context_length / 1000))K"
-                fi
-                details=" Context: $context_num"
-            fi
-
-            if [[ -n "$prompt_price" ]] && [[ "$prompt_price" != "null" ]]; then
-                details+=" Price: $prompt_price/1M"
-            fi
-        fi
+handle_backup() {
+    create_session_backup_dir
+    local backup_path=$(backup_sessions)
+    if [[ -n "$backup_path" ]]; then
+        log_success "Sessions backed up to: $backup_path"
     fi
-
-    echo "$details"
 }
 
-# Enhanced interactive model selection with details
-select_model_interactive() {
+handle_clear() {
+    clear_sessions
+}
+
+# ============================================================================
+# VALIDATION FUNCTIONS
+# ============================================================================
+
+validate_provider() {
     local provider="$1"
-    local available_models=()
 
-    # Use compatible array filling instead of readarray
-    while IFS= read -r model; do
-        [[ -n "$model" ]] && available_models+=("$model")
-    done < <(fetch_available_models "$provider")
-
-    if [[ ${#available_models[@]} -eq 0 ]]; then
-        log_error "No models available for provider: $provider"
-        return 1
-    fi
-
-    echo ""
-    log_info "Available models for $provider:"
-    for i in "${!available_models[@]}"; do
-        local model="${available_models[i]}"
-        local details=$(get_model_details "$model" "$provider")
-        if [[ -n "$details" ]]; then
-            printf "  %2d. %-30s%s\n" $((i+1)) "$model" "$details"
-        else
-            printf "  %2d. %s\n" $((i+1)) "$model"
-        fi
-    done
-
-    while true; do
-        echo ""
-        printf "Select model (1-${#available_models[@]}) or press Enter for default: "
-        read -r choice
-
-        if [[ -z "$choice" ]]; then
-            # Default selection
-            case "$provider" in
-                "standard") echo "claude-sonnet-4-5-20250929" ;;
-                "minimax") echo "MiniMax-M2" ;;
-                "zai"|"glm") echo "glm-4.6" ;;
-            esac
+    case "$provider" in
+        standard|zai|minimax)
             return 0
-        fi
-
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le ${#available_models[@]} ]]; then
-            local selected_model="${available_models[$((choice-1))]}"
-            echo "$selected_model"
-            log_info "Selected: $selected_model$(get_model_details "$selected_model" "$provider")"
-            return 0
-        else
-            log_error "Invalid selection. Please enter a number between 1 and ${#available_models[@]}"
-        fi
-    done
-}
-
-# Swap to Z.ai configuration
-swap_to_zai() {
-    log_info "Swapping to Z.ai configuration..."
-
-    validate_credentials "Z.ai" "$ZAI_AUTH_TOKEN" || return 1
-
-    # Handle session compatibility first
-    handle_session_compatibility "zai"
-
-    create_backup_dir
-    backup_settings
-
-    # Interactive model selection
-    log_info "Starting interactive model selection..."
-    local selected_model=$(select_model_interactive "zai")
-    if [[ -z "$selected_model" ]]; then
-        log_warning "Interactive selection failed, using default GLM model."
-        selected_model="glm-4.6"
-    fi
-    log_info "Selected model: $selected_model"
-
-    # Read current settings
-    local current_json=$(cat "$SETTINGS_FILE")
-
-    # Update environment variables for selected GLM model
-    local updated_json=$(echo "$current_json" | jq \
-        --arg auth_token "$ZAI_AUTH_TOKEN" \
-        --arg base_url "$ZAI_BASE_URL" \
-        --arg timeout "$ZAI_TIMEOUT" \
-        --arg disable_traffic "1" \
-        --arg model "$selected_model" \
-        --arg small_fast_model "$selected_model" \
-        --arg sonnet_model "$selected_model" \
-        --arg haiku_model "$selected_model" \
-        '.env.ANTHROPIC_AUTH_TOKEN = $auth_token |
-         .env.ANTHROPIC_BASE_URL = $base_url |
-         .env.API_TIMEOUT_MS = $timeout |
-         .env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = ($disable_traffic | tonumber) |
-         .env.ANTHROPIC_MODEL = $model |
-         .env.ANTHROPIC_SMALL_FAST_MODEL = $small_fast_model |
-         .env.ANTHROPIC_DEFAULT_SONNET_MODEL = $sonnet_model |
-         .env.ANTHROPIC_DEFAULT_HAIKU_MODEL = $haiku_model')
-
-    # Validate JSON before writing
-    if ! echo "$updated_json" | jq empty 2>/dev/null; then
-        log_error "Generated invalid JSON. Restoring from backup."
-        restore_latest_backup
-        return 1
-    fi
-
-    # Write updated settings
-    echo "$updated_json" > "$SETTINGS_FILE"
-
-    log_success "Successfully switched to Z.ai configuration"
-    log_info "  ANTHROPIC_BASE_URL: $ZAI_BASE_URL"
-    log_info "  API_TIMEOUT_MS: $ZAI_TIMEOUT"
-    log_info "  ANTHROPIC_MODEL: $selected_model"
-}
-
-# Swap to MiniMax configuration
-swap_to_minimax() {
-    log_info "Swapping to MiniMax configuration..."
-
-    validate_credentials "MiniMax" "$MINIMAX_AUTH_TOKEN" || return 1
-
-    # Handle session compatibility first
-    handle_session_compatibility "minimax"
-
-    create_backup_dir
-    backup_settings
-
-    # Interactive model selection
-    local selected_model=$(select_model_interactive "minimax")
-    if [[ -z "$selected_model" ]]; then
-        log_error "No model selected. Aborting."
-        return 1
-    fi
-
-    # Read current settings
-    local current_json=$(cat "$SETTINGS_FILE")
-
-    # Update all MiniMax environment variables
-    local updated_json=$(echo "$current_json" | jq \
-        --arg base_url "$MINIMAX_BASE_URL" \
-        --arg auth_token "$MINIMAX_AUTH_TOKEN" \
-        --arg timeout "$MINIMAX_TIMEOUT" \
-        --arg disable_traffic "1" \
-        --arg model "$selected_model" \
-        --arg small_fast_model "$selected_model" \
-        --arg sonnet_model "$selected_model" \
-        --arg haiku_model "$selected_model" \
-        '.env.ANTHROPIC_BASE_URL = $base_url |
-         .env.ANTHROPIC_AUTH_TOKEN = $auth_token |
-         .env.API_TIMEOUT_MS = $timeout |
-         .env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = ($disable_traffic | tonumber) |
-         .env.ANTHROPIC_MODEL = $model |
-         .env.ANTHROPIC_SMALL_FAST_MODEL = $small_fast_model |
-         .env.ANTHROPIC_DEFAULT_SONNET_MODEL = $sonnet_model |
-         .env.ANTHROPIC_DEFAULT_HAIKU_MODEL = $haiku_model')
-
-    # Validate JSON before writing
-    if ! echo "$updated_json" | jq empty 2>/dev/null; then
-        log_error "Generated invalid JSON. Restoring from backup."
-        restore_latest_backup
-        return 1
-    fi
-
-    # Write updated settings
-    echo "$updated_json" > "$SETTINGS_FILE"
-
-    log_success "Successfully switched to MiniMax configuration"
-    log_info "  ANTHROPIC_BASE_URL: $MINIMAX_BASE_URL"
-    log_info "  API_TIMEOUT_MS: $MINIMAX_TIMEOUT"
-    log_info "  ANTHROPIC_MODEL: $selected_model"
-}
-
-# Swap to standard Anthropic configuration
-swap_to_standard() {
-    log_info "Swapping to standard Anthropic configuration..."
-
-    # Handle session compatibility first
-    handle_session_compatibility "standard"
-
-    create_backup_dir
-    backup_settings
-
-    # Read current settings
-    local current_json=$(cat "$SETTINGS_FILE")
-
-    # Get the original auth token from the most recent non-custom backup
-    local original_token=$(find "$BACKUP_DIR" -name "settings_*.json" -type f -exec \
-        jq -r 'select(.env.ANTHROPIC_BASE_URL != "https://api.z.ai/api/anthropic" and .env.ANTHROPIC_BASE_URL != "https://api.minimax.io/anthropic") | .env.ANTHROPIC_AUTH_TOKEN // ""' {} \; | \
-        grep -v '^$' | head -n 1)
-
-    if [[ -z "$original_token" ]]; then
-        log_warning "Could not find original auth token in backups"
-        log_warning "You may need to set ANTHROPIC_AUTH_TOKEN manually"
-        original_token=""
-    fi
-
-    # Update environment variables
-    local updated_json=$(echo "$current_json" | jq \
-        --arg auth_token "$original_token" \
-        --arg timeout "$STANDARD_TIMEOUT" \
-        '.env.ANTHROPIC_AUTH_TOKEN = $auth_token |
-         .env.API_TIMEOUT_MS = $timeout |
-         del(.env.ANTHROPIC_BASE_URL, .env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, .env.ANTHROPIC_MODEL, .env.ANTHROPIC_SMALL_FAST_MODEL, .env.ANTHROPIC_DEFAULT_SONNET_MODEL, .env.ANTHROPIC_DEFAULT_OPUS_MODEL, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL)')
-
-    # Validate JSON before writing
-    if ! echo "$updated_json" | jq empty 2>/dev/null; then
-        log_error "Generated invalid JSON. Restoring from backup."
-        restore_latest_backup
-        return 1
-    fi
-
-    # Write updated settings
-    echo "$updated_json" > "$SETTINGS_FILE"
-
-    log_success "Successfully switched to standard Anthropic configuration"
-    log_info "  ANTHROPIC_BASE_URL: (removed/default)"
-    log_info "  API_TIMEOUT_MS: $STANDARD_TIMEOUT"
-
-    if [[ -n "$original_token" ]]; then
-        log_info "  Restored original ANTHROPIC_AUTH_TOKEN"
-    fi
-}
-
-# Restore latest backup
-restore_latest_backup() {
-    local latest_backup=$(ls -t "$BACKUP_DIR"/settings_*.json 2>/dev/null | head -n 1)
-
-    if [[ -z "$latest_backup" ]]; then
-        log_error "No backups found to restore"
-        return 1
-    fi
-
-    cp "$latest_backup" "$SETTINGS_FILE"
-    log_success "Restored settings from: $latest_backup"
-}
-
-# Show current status
-show_status() {
-    local current=$(get_current_config)
-    local session_provider=$(detect_session_provider)
-
-    echo ""
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo -e "${BLUE}  Claude Configuration Status${NC}"
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-
-    case "$current" in
-        zai)
-            echo -e "Current Configuration: ${GREEN}Z.ai${NC}"
-            ;;
-        minimax)
-            echo -e "Current Configuration: ${MAGENTA}MiniMax${NC}"
-            ;;
-        standard)
-            echo -e "Current Configuration: ${GREEN}Standard Anthropic${NC}"
-            ;;
-        unknown)
-            echo -e "Current Configuration: ${YELLOW}Unknown/Custom${NC}"
-            ;;
-        none)
-            echo -e "Current Configuration: ${RED}Not Found${NC}"
-            ;;
-    esac
-
-    # Show session status
-    echo ""
-    echo "Sessions:"
-    if [[ "$session_provider" == "none" ]]; then
-        echo -e "  Active sessions: ${YELLOW}None${NC}"
-    else
-        local session_count=$(ls -1 "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
-        echo -e "  Active sessions: ${GREEN}$session_count${NC} (created with $session_provider)"
-
-        # Check compatibility with current config
-        if is_session_compatible "$session_provider" "$current"; then
-            echo -e "  Session compatibility: ${GREEN}✓ Compatible${NC}"
-        else
-            echo -e "  Session compatibility: ${RED}✗ Incompatible with current config${NC}"
-            echo -e "  ${YELLOW}→ Run any swap command to fix session compatibility${NC}"
-        fi
-    fi
-
-    if [[ -f "$SETTINGS_FILE" ]]; then
-        local base_url=$(jq -r '.env.ANTHROPIC_BASE_URL // "(not set)"' "$SETTINGS_FILE")
-        local timeout=$(jq -r '.env.API_TIMEOUT_MS // "(not set)"' "$SETTINGS_FILE")
-        local model=$(jq -r '.env.ANTHROPIC_MODEL // "(not set)"' "$SETTINGS_FILE")
-        local token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // "(not set)"' "$SETTINGS_FILE")
-        local token_preview="${token:0:20}..."
-
-        echo ""
-        echo "Settings:"
-        echo "  ANTHROPIC_BASE_URL: $base_url"
-        echo "  API_TIMEOUT_MS: $timeout"
-        if [[ "$model" != "(not set)" ]]; then
-            echo "  ANTHROPIC_MODEL: $model"
-        fi
-        echo "  ANTHROPIC_AUTH_TOKEN: $token_preview"
-    fi
-
-    local backup_count=$(ls -1 "$BACKUP_DIR"/settings_*.json 2>/dev/null | wc -l | tr -d ' ')
-    local session_backup_count=$(ls -1d "$CLAUDE_SESSION_BACKUP_DIR"/session_backup_* 2>/dev/null 2>/dev/null | wc -l | tr -d ' ')
-    echo ""
-    echo "Backups available:"
-    echo "  Settings backups: ${backup_count:-0}"
-    echo "  Session backups: ${session_backup_count:-0}"
-
-    echo ""
-    echo -e "${YELLOW}Configuration Check:${NC}"
-    if [[ -z "$ZAI_AUTH_TOKEN" ]] && [[ "$current" != "minimax" ]] && [[ "$current" != "standard" ]]; then
-        echo -e "${YELLOW}  ⚠ Z.ai token not configured (set CLAUDE_ZAI_AUTH_TOKEN)${NC}"
-    fi
-    if [[ -z "$MINIMAX_AUTH_TOKEN" ]] && [[ "$current" != "zai" ]] && [[ "$current" != "standard" ]]; then
-        echo -e "${YELLOW}  ⚠ MiniMax token not configured (set CLAUDE_MINIMAX_AUTH_TOKEN)${NC}"
-    fi
-
-    echo ""
-    echo -e "${CYAN}Session Management Commands:${NC}"
-    echo "  claudeswap clear-sessions   # Clear all sessions"
-    echo "  claudeswap backup-sessions  # Backup current sessions"
-
-    echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
-    echo ""
-}
-
-# Show usage
-show_usage() {
-    cat << EOF
-Usage: claudeswap [COMMAND]
-
-Commands:
-  zai           Switch to Z.ai GLM configuration
-  minimax       Switch to MiniMax configuration
-  standard      Switch to standard Anthropic configuration
-  status        Show current configuration status
-  restore       Restore from latest backup
-  clear-sessions Clear all Claude session files
-  backup-sessions Backup current Claude sessions
-  test-models   Test dynamic model mapping system
-  benchmark     Performance benchmark and optimization test
-  help          Show this help message
-
-Quick Start:
-  Run any command and the tool will prompt you interactively if credentials are needed!
-  (e.g., claudeswap zai or claudeswap minimax)
-
-Session Management:
-  The tool automatically detects incompatible sessions when switching providers
-  and offers options to clear, backup, or preserve sessions.
-
-Configuration:
-  Method 1 - Interactive (Recommended):
-    Just run a command and choose interactive setup when prompted
-
-  Method 2 - Manual Setup:
-    Add to your ~/.zshrc or ~/.bashrc:
-
-    For Z.ai:
-      export CLAUDE_ZAI_AUTH_TOKEN="your-zai-token-here"
-      export CLAUDE_ZAI_BASE_URL="https://api.z.ai/api/anthropic"
-
-    For MiniMax:
-      export CLAUDE_MINIMAX_AUTH_TOKEN="your-minimax-token-here"
-      export CLAUDE_MINIMAX_BASE_URL="https://api.minimax.io/anthropic"
-
-    Then reload: source ~/.zshrc
-
-Where to get tokens:
-  Z.ai: https://z.ai/manage-apikey/apikey-list
-  MiniMax: https://platform.minimax.io/user-center/basic-information/interface-key
-  Standard Anthropic: https://console.anthropic.com/
-
-Examples:
-  claudeswap zai        # Switch to Z.ai GLM (select from glm-4.6, glm-4.5, glm-4.5-air)
-  claudeswap minimax    # Switch to MiniMax (select from MiniMax-M2, MiniMax-M1)
-  claudeswap standard   # Switch to standard Anthropic (select from Claude models)
-  claudeswap status     # Show current config
-  claudeswap restore    # Restore latest backup
-
-Configuration files:
-  Settings:     $SETTINGS_FILE
-  Backups:      $BACKUP_DIR
-
-EOF
-}
-
-# Performance benchmark and optimization test
-benchmark_performance() {
-    echo ""
-    log_info "Performance Benchmark & Optimization Analysis"
-    log_info "=========================================="
-
-    # Test model mapping performance
-    echo "Testing model mapping performance..."
-    local start_time=$(date +%s.%N 2>/dev/null || date +%s)
-
-    for i in {1..1000}; do
-        map_model_to_provider "claude-sonnet-4-5-20250929" "minimax" > /dev/null
-        map_model_to_provider "glm-4.5-air" "standard" > /dev/null
-        detect_model_family "MiniMax-M2" > /dev/null
-    done
-
-    local end_time=$(date +%s.%N 2>/dev/null || date +%s)
-    local mapping_time=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
-    echo "  ✓ Model mapping (3000 operations): ${mapping_time}s"
-
-    # Test file discovery performance
-    echo "Testing session file discovery..."
-    start_time=$(date +%s.%N 2>/dev/null || date +%s)
-
-    local session_count=0
-    if [[ -d "$CLAUDE_TODO_DIR" ]]; then
-        for session_file in "$CLAUDE_TODO_DIR"/*.json; do
-            [[ -f "$session_file" ]] && ((session_count++))
-        done
-    fi
-
-    if [[ -d "$CLAUDE_PROJECT_DIR" ]]; then
-        while IFS= read -r -d '' session_file; do
-            [[ -f "$session_file" ]] && ((session_count++))
-        done < <(find "$CLAUDE_PROJECT_DIR" -name "*.jsonl" -print0 2>/dev/null)
-    fi
-
-    end_time=$(date +%s.%N 2>/dev/null || date +%s)
-    local discovery_time=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
-    echo "  ✓ File discovery ($session_count files): ${discovery_time}s"
-
-    # Test JSON processing performance
-    if [[ $session_count -gt 0 ]]; then
-        echo "Testing JSON processing optimization..."
-
-        # Find a sample session file
-        local sample_file=""
-        if [[ -d "$CLAUDE_TODO_DIR" ]]; then
-            for session_file in "$CLAUDE_TODO_DIR"/*.json; do
-                if [[ -f "$session_file" && -s "$session_file" ]]; then
-                    sample_file="$session_file"
-                    break
-                fi
-            done
-        fi
-
-        if [[ -n "$sample_file" ]]; then
-            # Test optimized bulk processing
-            start_time=$(date +%s.%N 2>/dev/null || date +%s)
-
-            local jq_script='if .type == "assistant" then .message.model = "test-model" else . end'
-            jq -c "$jq_script" "$sample_file" > /dev/null 2>&1
-
-            end_time=$(date +%s.%N 2>/dev/null || date +%s)
-            local json_time=$(echo "$end_time - $start_time" | bc 2>/dev/null || echo "N/A")
-            echo "  ✓ Bulk JSON processing: ${json_time}s"
-        fi
-    fi
-
-    # System optimization analysis
-    echo ""
-    echo "System Optimization Analysis:"
-
-    # Check for parallel processing capability
-    if command -v parallel &> /dev/null; then
-        local cpu_count=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "4")
-        echo "  ✓ Parallel processing available ($cpu_count cores)"
-    else
-        echo "  ⚠ Parallel processing not available (install GNU parallel for speedup)"
-    fi
-
-    # Check cache effectiveness
-    echo "  ✓ Model extraction cache enabled (limit: $CACHE_SIZE_LIMIT entries)"
-
-    # Memory usage optimization
-    echo "  ✓ Optimized file reading (8KB chunks for model detection)"
-    echo "  ✓ Bulk JSON operations (single jq invocation per file)"
-
-    # Performance recommendations
-    echo ""
-    echo "Performance Recommendations:"
-    if [[ $session_count -gt 50 ]]; then
-        echo "  📈 Large session count detected - consider regular session cleanup"
-    fi
-
-    if ! command -v parallel &> /dev/null; then
-        echo "  🔧 Install GNU parallel: brew install parallel"
-    fi
-
-    echo "  🧹 Use 'claudeswap clear-sessions' to remove old sessions"
-    echo "  📊 Use 'claudeswap benchmark' to monitor performance over time"
-
-    log_success "Benchmark completed - System optimized for current workload"
-}
-
-# Main command handler
-main() {
-    # Check for jq dependency
-    if ! command -v jq &> /dev/null; then
-        log_error "jq is required but not installed. Install with: brew install jq"
-        exit 1
-    fi
-
-    local command="${1:-status}"
-
-    case "$command" in
-        zai)
-            swap_to_zai
-            show_status
-            ;;
-        minimax|mm)
-            swap_to_minimax
-            show_status
-            ;;
-        standard|std)
-            swap_to_standard
-            show_status
-            ;;
-        status|st)
-            show_status
-            ;;
-        restore)
-            restore_latest_backup
-            show_status
-            ;;
-        clear-sessions)
-            clear_sessions
-            ;;
-        backup-sessions)
-            create_session_backup_dir
-            backup_sessions
-            ;;
-        test-models)
-            test_model_mapping
-            ;;
-        benchmark)
-            benchmark_performance
-            ;;
-        help|-h|--help)
-            show_usage
             ;;
         *)
-            log_error "Unknown command: $command"
-            echo ""
-            show_usage
-            exit 1
+            log_error "Invalid provider: $provider"
+            log_info "Valid providers: standard, zai, minimax"
+            return 1
             ;;
     esac
 }
 
+# ============================================================================
+# MAIN ENTRY POINT
+# ============================================================================
+
+main() {
+    local command="${1:-}"
+    shift || true
+
+    case "$command" in
+        "status")
+            handle_status
+            ;;
+        "test-models")
+            handle_test_models "$@"
+            ;;
+        "set")
+            if [[ $# -lt 1 ]]; then
+                log_error "Usage: claudeswap set <provider> [model]"
+                return 1
+            fi
+            handle_set "$@"
+            ;;
+        "setup")
+            handle_setup
+            ;;
+        "backup")
+            handle_backup
+            ;;
+        "clear")
+            handle_clear
+            ;;
+        "help"|"--help"|"-h")
+            echo "Claude Swap - Configuration Manager"
+            echo ""
+            echo "Usage: claudeswap <command> [options]"
+            echo ""
+            echo "Commands:"
+            echo "  status         Show current configuration status"
+            echo "  test-models    Test and display available models"
+            echo "  set <provider> Switch to specified provider"
+            echo "  setup          Interactive credential setup"
+            echo "  backup         Backup current sessions"
+            echo "  clear          Clear all sessions"
+            echo "  help           Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  claudeswap status"
+            echo "  claudeswap test-models zai"
+            echo "  claudeswap set zai glm-4.6"
+            echo "  claudeswap setup"
+            echo ""
+            ;;
+        *)
+            if [[ -z "$command" ]]; then
+                log_error "No command specified"
+            else
+                log_error "Unknown command: $command"
+            fi
+            echo "Use 'claudeswap help' for usage information"
+            return 1
+            ;;
+    esac
+}
+
+# Run main function with all arguments
 main "$@"
