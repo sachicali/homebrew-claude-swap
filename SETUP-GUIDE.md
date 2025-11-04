@@ -11,7 +11,7 @@ This tool requires you to configure your own API credentials. **No credentials a
 ### Step 1: Install the Tool
 
 ```bash
-brew tap sachicali/homebrew-claude-swap
+brew tap sachicali/claudeswap
 brew install claudeswap
 ```
 

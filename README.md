@@ -37,14 +37,14 @@ source ~/.zshrc
 
 ```bash
 # Install from the GitHub repository
-brew install sachicali/homebrew-claude-swap/claudeswap
+brew install sachicali/homebrew-claudeswap/claudeswap
 ```
 
 ### Option 2: Manual Homebrew Formula
 
 1. Tap the repository:
 ```bash
-brew tap sachicali/homebrew-claude-swap
+brew tap sachicali/claudeswap
 ```
 
 2. Install the formula:
@@ -203,7 +203,7 @@ export CLAUDE_STANDARD_TIMEOUT="120000"  # 2 minutes
 
 ```bash
 brew uninstall claudeswap
-brew untap sachicali/homebrew-claude-swap
+brew untap sachicali/claudeswap
 ```
 
 ## Troubleshooting
