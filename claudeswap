@@ -3,12 +3,40 @@
 # Claude Swap - Modular Configuration Manager
 # Main entry point script with TIGERSTYLE modular architecture
 
-readonly VERSION="1.2.1"
+readonly VERSION="1.2.3"
 
 # Determine script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB_DIR="$SCRIPT_DIR/lib"
 export CLAUDE_SWAP_BASE_DIR="$SCRIPT_DIR"
+
+# Dynamically locate lib directory - works for both Homebrew and source installs
+LIB_DIR=""
+CLAUDE_SWAP_BASE_DIR="$SCRIPT_DIR"
+if [[ -d "$SCRIPT_DIR/lib" ]]; then
+    # Source installation: lib/ in same directory as script
+    LIB_DIR="$SCRIPT_DIR/lib"
+elif [[ -d "/opt/homebrew/Cellar/claudeswap" ]]; then
+    # Homebrew installation: find lib/ in the actual Cellar version directory
+    # Try to find the most recent version
+    latest_version=$(ls -t /opt/homebrew/Cellar/claudeswap 2>/dev/null | head -1)
+    if [[ -n "$latest_version" ]]; then
+        # Homebrew installs to libexec/lib
+        if [[ -d "/opt/homebrew/Cellar/claudeswap/$latest_version/libexec/lib" ]]; then
+            LIB_DIR="/opt/homebrew/Cellar/claudeswap/$latest_version/libexec/lib"
+            # Also update base dir to the Cellar location so modular files can find their dependencies
+            CLAUDE_SWAP_BASE_DIR="/opt/homebrew/Cellar/claudeswap/$latest_version"
+        # Fallback for source installs
+        elif [[ -d "/opt/homebrew/Cellar/claudeswap/$latest_version/lib" ]]; then
+            LIB_DIR="/opt/homebrew/Cellar/claudeswap/$latest_version/lib"
+            CLAUDE_SWAP_BASE_DIR="/opt/homebrew/Cellar/claudeswap/$latest_version"
+        fi
+    fi
+fi
+
+# Fallback: use script directory if nothing else works
+if [[ -z "$LIB_DIR" ]]; then
+    LIB_DIR="$SCRIPT_DIR/lib"
+fi
 
 # Guard against multiple sourcing
 [[ -z "${CLAUDESWAP_LOADED:-}" ]] || return 0
