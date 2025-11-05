@@ -1,11 +1,11 @@
 class Claudeswap < Formula
   desc "Safely swap between GLM providers (Z.ai), MiniMax, and standard Anthropic Claude configurations with dynamic model mapping and performance optimization"
   homepage "https://github.com/sachicali/homebrew-claudeswap"
-  version "1.2.5"
+  version "1.2.6"
   license "MIT"
 
-  url "https://github.com/sachicali/homebrew-claudeswap/archive/refs/tags/v1.2.5.tar.gz"
-  sha256 "0819fa31d196deb08a65b3f35728e836797dfc7de2412ea9fab134ce33160163"
+  url "https://github.com/sachicali/homebrew-claudeswap/archive/refs/tags/v1.2.6.tar.gz"
+  sha256 "8d25cd9bedfb3db378c544b19d97138c162d0d9a2990c76c67b3f882c495e4a0"
 
   depends_on "jq"
   depends_on "curl"
