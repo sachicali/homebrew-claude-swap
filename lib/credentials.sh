@@ -202,10 +202,9 @@ select_model_interactive() {
 
 # Setup Anthropic credentials
 setup_anthropic_credentials() {
-    # Standard Anthropic uses environment or just sets up the config
-    if [[ ! -f "$SETTINGS_FILE" ]]; then
-        echo '{"anthropic": {}}' > "$SETTINGS_FILE"
-    fi
+    # No-op - handle_set() creates correct settings.json structure
+    # Standard Anthropic credentials come from ANTHROPIC_API_KEY environment variable
+    return 0
 }
 
 # Setup Z.ai credentials

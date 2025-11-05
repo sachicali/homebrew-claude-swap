@@ -3,7 +3,7 @@
 # Claude Swap - Modular Configuration Manager
 # Main entry point script with TIGERSTYLE modular architecture
 
-readonly VERSION="1.2.6"
+readonly VERSION="1.2.7"
 
 # Determine script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -62,7 +62,7 @@ handle_status() {
 
     # Detect current provider
     if [[ -f "$SETTINGS_FILE" ]]; then
-        current_provider=$(jq -r '.anthropic.api_key // empty' "$SETTINGS_FILE" 2>/dev/null | grep -q "sk-ant" && echo "standard" || echo "unknown")
+        current_provider=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_FILE" 2>/dev/null | grep -q "sk-ant" && echo "standard" || echo "unknown")
         if [[ "$current_provider" == "unknown" ]] && [[ -n "$ZAI_API_KEY" ]]; then
             current_provider="zai"
         fi
