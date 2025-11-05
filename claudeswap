@@ -3,7 +3,7 @@
 # Claude Swap - Modular Configuration Manager
 # Main entry point script with TIGERSTYLE modular architecture
 
-readonly VERSION="1.2.5"
+readonly VERSION="1.2.6"
 
 # Determine script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -141,15 +141,51 @@ handle_set() {
             ;;
     esac
 
-    # Update settings file
+    # Update settings file with correct auth token path
     if [[ ! -d "$(dirname "$SETTINGS_FILE")" ]]; then
         mkdir -p "$(dirname "$SETTINGS_FILE")"
     fi
 
-    jq ".anthropic.api_key = \"$ANTHROPIC_API_KEY\"" "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" 2>/dev/null || true
-    mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+    # Ensure settings file exists with proper structure
+    if [[ ! -f "$SETTINGS_FILE" ]]; then
+        echo '{"env":{"ANTHROPIC_AUTH_TOKEN":"","API_TIMEOUT_MS":"120000"}}' > "$SETTINGS_FILE"
+    fi
 
-    log_success "Switched to $provider$([[ -n "$model" ]] && echo " (model: $model")"
+    # Update authentication token based on provider
+    local auth_token=""
+    local timeout_ms=""
+
+    case "$provider" in
+        "standard")
+            auth_token="${ANTHROPIC_API_KEY:-}"
+            timeout_ms="${STANDARD_TIMEOUT:-120000}"
+            ;;
+        "zai")
+            auth_token="${ZAI_API_KEY:-}"
+            timeout_ms="${ZAI_TIMEOUT:-3000000}"
+            ;;
+        "minimax")
+            auth_token="${MINIMAX_API_KEY:-}"
+            timeout_ms="${MINIMAX_TIMEOUT:-3000000}"
+            ;;
+    esac
+
+    if [[ -z "$auth_token" ]]; then
+        log_error "No authentication token available for $provider"
+        log_info "Run: claudeswap setup"
+        return 1
+    fi
+
+    # Update settings.json with correct path (env.ANTHROPIC_AUTH_TOKEN)
+    jq ".env.ANTHROPIC_AUTH_TOKEN = \"$auth_token\" | .env.API_TIMEOUT_MS = \"$timeout_ms\"" "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+    if [[ $? -eq 0 ]]; then
+        mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+        log_success "Switched to $provider$([[ -n "$model" ]] && echo " (model: $model)")"
+    else
+        log_error "Failed to update settings file"
+        rm -f "${SETTINGS_FILE}.tmp"
+        return 1
+    fi
 }
 
 handle_setup() {
