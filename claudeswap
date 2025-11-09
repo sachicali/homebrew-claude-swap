@@ -95,25 +95,38 @@ handle_status() {
     echo "  • standard - Anthropic API (claude-3-5-sonnet, claude-3-haiku)"
     echo "  • zai      - Z.ai API (GLM models: glm-4.6, glm-4.5)"
     echo "  • minimax  - MiniMax API (MiniMax-M2, MiniMax-M1)"
+    echo "  • kimi     - Kimi/Moonshot API (moonshot-v1-256k, kimi-k2)"
     echo ""
 }
 
 handle_test_models() {
     local provider="${1:-}"
     local models=()
+    local max_providers=10  # NASA Rule 2: Fixed loop bound
 
     if [[ -z "$provider" ]]; then
         log_info "Testing all providers..."
-        for prov in standard zai minimax; do
+        local count=0
+        for prov in standard zai minimax kimi; do
+            if [[ $count -ge $max_providers ]]; then
+                break
+            fi
             log_info "Checking $prov models..."
             local prov_models=($(fetch_available_models "$prov"))
             echo "  $prov: ${prov_models[*]:-none}"
+            count=$((count + 1))
         done
     else
         models=($(fetch_available_models "$provider"))
         echo "Available models for $provider:"
+        local max_models=100  # NASA Rule 2: Fixed loop bound
+        local idx=0
         for model in "${models[@]}"; do
+            if [[ $idx -ge $max_models ]]; then
+                break
+            fi
             echo "  • $model$(get_model_details "$model" "$provider")"
+            idx=$((idx + 1))
         done
     fi
 }
@@ -138,6 +151,9 @@ handle_set() {
             ;;
         "minimax")
             setup_minimax_credentials
+            ;;
+        "kimi")
+            setup_kimi_credentials
             ;;
     esac
 
@@ -172,6 +188,11 @@ handle_set() {
             timeout_ms="${MINIMAX_TIMEOUT:-3000000}"
             base_url="${MINIMAX_BASE_URL:-$MINIMAX_BASE_URL_DEFAULT}"
             ;;
+        "kimi")
+            auth_token="${KIMI_API_KEY:-}"
+            timeout_ms="${KIMI_TIMEOUT:-3000000}"
+            base_url="${KIMI_BASE_URL:-$KIMI_BASE_URL_DEFAULT}"
+            ;;
     esac
 
     if [[ -z "$auth_token" ]]; then
@@ -181,38 +202,64 @@ handle_set() {
     fi
 
     # Update settings.json with provider-specific configuration
+    # NASA Rule 7: Check all return values
+    local jq_result=0
     if [[ -n "$base_url" ]]; then
-        # Proxy providers (Z.ai, MiniMax): Set ANTHROPIC_BASE_URL
+        # Proxy providers (Z.ai, MiniMax, Kimi): Set ANTHROPIC_BASE_URL
         jq ".env.ANTHROPIC_AUTH_TOKEN = \"$auth_token\" | .env.API_TIMEOUT_MS = \"$timeout_ms\" | .env.ANTHROPIC_BASE_URL = \"$base_url\"" "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+        jq_result=$?
     else
         # Standard Anthropic: Remove ANTHROPIC_BASE_URL if it exists
         jq ".env.ANTHROPIC_AUTH_TOKEN = \"$auth_token\" | .env.API_TIMEOUT_MS = \"$timeout_ms\" | del(.env.ANTHROPIC_BASE_URL)" "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+        jq_result=$?
     fi
 
-    if [[ $? -eq 0 ]]; then
-        mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+    if [[ $jq_result -eq 0 ]]; then
+        if ! mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"; then
+            log_error "Failed to save settings file"
+            rm -f "${SETTINGS_FILE}.tmp"
+            return 1
+        fi
         log_success "Switched to $provider$([[ -n "$model" ]] && echo " (model: $model)")$([[ -n "$base_url" ]] && echo " at $base_url")"
     else
         log_error "Failed to update settings file"
         rm -f "${SETTINGS_FILE}.tmp"
         return 1
     fi
+    return 0
 }
 
 handle_setup() {
-    setup_credentials_interactive
+    # NASA Rule 7: Check return value
+    if ! setup_credentials_interactive; then
+        log_error "Setup failed or was cancelled"
+        return 1
+    fi
+    return 0
 }
 
 handle_backup() {
-    create_session_backup_dir
+    # NASA Rule 7: Check return values
+    if ! create_session_backup_dir; then
+        log_error "Failed to create backup directory"
+        return 1
+    fi
+
     local backup_path=$(backup_sessions)
     if [[ -n "$backup_path" ]]; then
         log_success "Sessions backed up to: $backup_path"
+        return 0
     fi
+    return 1
 }
 
 handle_clear() {
-    clear_sessions
+    # NASA Rule 7: Check return value
+    if ! clear_sessions; then
+        log_error "Failed to clear sessions"
+        return 1
+    fi
+    return 0
 }
 
 # ============================================================================
@@ -223,12 +270,12 @@ validate_provider() {
     local provider="$1"
 
     case "$provider" in
-        standard|zai|minimax)
+        standard|zai|minimax|kimi|moonshot)
             return 0
             ;;
         *)
             log_error "Invalid provider: $provider"
-            log_info "Valid providers: standard, zai, minimax"
+            log_info "Valid providers: standard, zai, minimax, kimi"
             return 1
             ;;
     esac

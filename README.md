@@ -1,6 +1,6 @@
 # Claude Swap
 
-A safe and robust tool to swap between GLM providers (Z.ai), MiniMax, and standard Anthropic Claude configurations with dynamic model mapping and performance optimization.
+A safe and robust tool to swap between multiple AI providers: GLM (Z.ai), MiniMax, Kimi/Moonshot, and standard Anthropic Claude with dynamic model mapping and performance optimization.
 
 ## ⚠️ IMPORTANT: Set Your Credentials First
 
@@ -19,11 +19,15 @@ export CLAUDE_ZAI_BASE_URL="https://api.z.ai/api/anthropic"
 export CLAUDE_MINIMAX_AUTH_TOKEN="your-minimax-token-here"
 export CLAUDE_MINIMAX_BASE_URL="https://api.minimax.io/anthropic"
 
+# Kimi/Moonshot Configuration (optional - only if you have access)
+export CLAUDE_KIMI_AUTH_TOKEN="your-kimi-token-here"
+export CLAUDE_KIMI_BASE_URL="https://api.moonshot.cn/v1"
+
 # Standard timeout (default is 2 minutes)
 export CLAUDE_STANDARD_TIMEOUT="120000"
 ```
 
-**Replace `your-zai-token-here` and `your-minimax-token-here` with your actual tokens!**
+**Replace `your-zai-token-here`, `your-minimax-token-here`, and `your-kimi-token-here` with your actual tokens!**
 
 ### 2. Reload Your Shell
 
@@ -60,6 +64,9 @@ claudeswap zai
 
 # Switch to MiniMax (50min timeout, MiniMax-M2 model)
 claudeswap minimax
+
+# Switch to Kimi/Moonshot (50min timeout, 256K context)
+claudeswap kimi
 
 # Switch to standard Anthropic (2min timeout)
 claudeswap standard
@@ -99,6 +106,15 @@ claudeswap help
 - All model variants set to MiniMax-M2
 - Uses your `CLAUDE_MINIMAX_AUTH_TOKEN`
 
+### Kimi/Moonshot Configuration
+- Base URL: `https://api.moonshot.cn/v1`
+- Timeout: 3000000ms (50 minutes)
+- Models: moonshot-v1-256k, moonshot-v1-128k, moonshot-v1-32k
+- Supports Kimi K2 Thinking model (November 2025)
+- Temperature mapping: API applies 0.6x multiplier automatically
+- Uses your `CLAUDE_KIMI_AUTH_TOKEN`
+- Context: Up to 256K tokens
+
 ### Standard Configuration
 - Base URL: (removed/blank)
 - Timeout: 120000ms (2 minutes) - customizable via `CLAUDE_STANDARD_TIMEOUT`
@@ -107,10 +123,10 @@ claudeswap help
 ## 🚀 New Features in v1.2.0
 
 ### Dynamic Model Mapping
-- **Universal Model Support**: Automatically detects and maps any model type (sonnet, haiku, opus, GLM, MiniMax)
-- **Provider-Agnostic**: Seamlessly switch between Anthropic, MiniMax, and GLM providers
+- **Universal Model Support**: Automatically detects and maps any model type (sonnet, haiku, opus, GLM, MiniMax, Kimi)
+- **Provider-Agnostic**: Seamlessly switch between Anthropic, MiniMax, GLM, and Kimi/Moonshot providers
 - **Smart Detection**: Identifies model families and performance tiers
-- **Future-Proof**: Handles new model releases automatically
+- **Future-Proof**: Handles new model releases automatically including Kimi K2 Thinking (Nov 2025)
 
 ### Session Compatibility
 - **Fixes `claude --continue` Errors**: Resolves "Unknown Model" and "Invalid signature" issues
@@ -166,6 +182,9 @@ Visit: https://z.ai/manage-apikey/apikey-list
 ### MiniMax
 Visit: https://platform.minimax.io/user-center/basic-information/interface-key
 
+### Kimi/Moonshot
+Visit: https://platform.moonshot.cn/console/api-keys
+
 ### Standard Anthropic
 Your standard Anthropic API key: https://console.anthropic.com/
 
@@ -195,6 +214,11 @@ export CLAUDE_MINIMAX_AUTH_TOKEN="your-token"
 export CLAUDE_MINIMAX_BASE_URL="custom-url-if-needed"
 export CLAUDE_MINIMAX_TIMEOUT="3000000"  # 50 minutes
 
+# Kimi/Moonshot (optional)
+export CLAUDE_KIMI_AUTH_TOKEN="your-token"
+export CLAUDE_KIMI_BASE_URL="https://api.moonshot.cn/v1"
+export CLAUDE_KIMI_TIMEOUT="3000000"  # 50 minutes
+
 # Standard
 export CLAUDE_STANDARD_TIMEOUT="120000"  # 2 minutes
 ```
@@ -213,6 +237,9 @@ Make sure you set `CLAUDE_ZAI_AUTH_TOKEN` in your `~/.zshrc`
 
 ### "MiniMax credentials not configured"
 Make sure you set `CLAUDE_MINIMAX_AUTH_TOKEN` in your `~/.zshrc`
+
+### "Kimi/Moonshot credentials not configured"
+Make sure you set `CLAUDE_KIMI_AUTH_TOKEN` in your `~/.zshrc`
 
 ### jq not found
 ```bash

@@ -89,11 +89,12 @@ setup_credentials_interactive() {
     echo "Choose a provider to configure:"
     echo "  1. Z.ai (GLM models: glm-4.6, glm-4.5)"
     echo "  2. MiniMax (MiniMax-M2, MiniMax-M1)"
-    echo "  3. Standard Anthropic (claude-sonnet, claude-haiku)"
+    echo "  3. Kimi/Moonshot (kimi-k2-thinking, moonshot-v1-256k)"
+    echo "  4. Standard Anthropic (claude-sonnet, claude-haiku)"
     echo ""
 
     while true; do
-        printf "Select provider (1-3): "
+        printf "Select provider (1-4): "
         read -r choice
 
         case "$choice" in
@@ -132,6 +133,23 @@ setup_credentials_interactive() {
                 break
                 ;;
             3)
+                setup_service_credentials "Kimi/Moonshot" "CLAUDE_KIMI_AUTH_TOKEN" "https://platform.moonshot.cn/console/api-keys"
+                # Ask for model selection if token was set
+                if [[ -n "${CLAUDE_KIMI_AUTH_TOKEN:-}" ]]; then
+                    echo ""
+                    echo "Would you like to select a specific Kimi model?"
+                    printf "Select model now? (y/n) "
+                    read -r select_model
+                    if [[ $select_model =~ ^[Yy]$ ]]; then
+                        local kimi_model=$(select_model_interactive "kimi")
+                        if [[ -n "$kimi_model" ]]; then
+                            log_info "Model selection completed. You can verify with: claudeswap status"
+                        fi
+                    fi
+                fi
+                break
+                ;;
+            4)
                 log_info "Standard Anthropic API doesn't require setup"
                 echo ""
                 echo "Simply ensure you have an Anthropic API key in:"
@@ -141,7 +159,7 @@ setup_credentials_interactive() {
                 break
                 ;;
             *)
-                echo "Invalid choice. Please enter 1, 2, or 3"
+                echo "Invalid choice. Please enter 1, 2, 3, or 4"
                 ;;
         esac
     done
@@ -186,6 +204,7 @@ select_model_interactive() {
                 "standard") echo "claude-sonnet-4-5-20250929" ;;
                 "minimax") echo "MiniMax-M2" ;;
                 "zai"|"glm") echo "glm-4.6" ;;
+                "kimi"|"moonshot") echo "moonshot-v1-256k" ;;
             esac
             return 0
         fi
@@ -249,6 +268,27 @@ setup_minimax_credentials() {
     log_success "MiniMax credentials configured"
 }
 
+# Setup Kimi/Moonshot credentials
+setup_kimi_credentials() {
+    if [[ -z "$KIMI_AUTH_TOKEN" ]]; then
+        log_error "Kimi/Moonshot credentials not configured!"
+        echo ""
+        echo "To configure manually:"
+        echo 'export CLAUDE_KIMI_AUTH_TOKEN="your-kimi-token-here"'
+        echo 'export CLAUDE_KIMI_BASE_URL="https://api.moonshot.cn/v1"'
+        echo ""
+        echo "Or run: claudeswap setup"
+        return 1
+    fi
+
+    # Set environment for Kimi/Moonshot
+    export KIMI_API_KEY="$KIMI_AUTH_TOKEN"
+    export KIMI_BASE_URL="${KIMI_BASE_URL:-$KIMI_BASE_URL_DEFAULT}"
+    export KIMI_TIMEOUT="${KIMI_TIMEOUT:-$KIMI_TIMEOUT_DEFAULT}"
+
+    log_success "Kimi/Moonshot credentials configured"
+}
+
 # Validate credentials
 validate_credentials() {
     local service="$1"
@@ -269,12 +309,16 @@ validate_credentials() {
                 setup_service_credentials "Z.ai" "CLAUDE_ZAI_AUTH_TOKEN" "https://z.ai/manage-apikey/apikey-list"
             elif [[ "$service" == "MiniMax" ]]; then
                 setup_service_credentials "MiniMax" "CLAUDE_MINIMAX_AUTH_TOKEN" "https://platform.minimax.io/user-center/basic-information/interface-key"
+            elif [[ "$service" == "Kimi" ]] || [[ "$service" == "Moonshot" ]]; then
+                setup_service_credentials "Kimi/Moonshot" "CLAUDE_KIMI_AUTH_TOKEN" "https://platform.moonshot.cn/console/api-keys"
             fi
             # Refresh the token variable after interactive setup
             if [[ "$service" == "Z.ai" ]]; then
                 token="${CLAUDE_ZAI_AUTH_TOKEN:-}"
             elif [[ "$service" == "MiniMax" ]]; then
                 token="${CLAUDE_MINIMAX_AUTH_TOKEN:-}"
+            elif [[ "$service" == "Kimi" ]] || [[ "$service" == "Moonshot" ]]; then
+                token="${CLAUDE_KIMI_AUTH_TOKEN:-}"
             fi
 
             # Check if still empty after interactive setup
@@ -294,6 +338,11 @@ validate_credentials() {
             elif [[ "$service" == "MiniMax" ]]; then
                 echo "export CLAUDE_MINIMAX_AUTH_TOKEN=\"your-minimax-token-here\""
                 echo "export CLAUDE_MINIMAX_BASE_URL=\"https://api.minimax.io/anthropic\""
+                echo ""
+                echo "Add these to your ~/.zshrc or ~/.bashrc"
+            elif [[ "$service" == "Kimi" ]] || [[ "$service" == "Moonshot" ]]; then
+                echo "export CLAUDE_KIMI_AUTH_TOKEN=\"your-kimi-token-here\""
+                echo "export CLAUDE_KIMI_BASE_URL=\"https://api.moonshot.cn/v1\""
                 echo ""
                 echo "Add these to your ~/.zshrc or ~/.bashrc"
             fi

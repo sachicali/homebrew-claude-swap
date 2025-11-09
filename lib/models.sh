@@ -20,6 +20,8 @@ detect_model_family() {
         *"MiniMax"*) echo "minimax" ;;
         # GLM models
         *"glm-"*) echo "glm" ;;
+        # Kimi/Moonshot models
+        *"kimi"*|*"moonshot"*) echo "kimi" ;;
         # Special cases
         "<synthetic>") echo "synthetic" ;;
         # Default fallback
@@ -37,6 +39,7 @@ detect_model_tier() {
         "haiku") echo "medium" ;;
         "glm") echo "medium" ;;
         "minimax") echo "high" ;;
+        "kimi") echo "high" ;;
         *) echo "medium" ;;
     esac
 }
@@ -77,7 +80,19 @@ map_model_to_provider() {
                 "haiku") echo "glm-4.5-air" ;;
                 "glm") echo "$model_name" ;;
                 "minimax") echo "glm-4.6" ;;
+                "kimi") echo "glm-4.6" ;;
                 *) echo "glm-4.6" ;;
+            esac
+            ;;
+        "kimi"|"moonshot")
+            # Kimi/Moonshot API
+            case "$model_family" in
+                "sonnet") echo "moonshot-v1-256k" ;;
+                "haiku") echo "moonshot-v1-32k" ;;
+                "glm") echo "moonshot-v1-128k" ;;
+                "minimax") echo "moonshot-v1-256k" ;;
+                "kimi") echo "$model_name" ;;
+                *) echo "moonshot-v1-256k" ;;
             esac
             ;;
         *)

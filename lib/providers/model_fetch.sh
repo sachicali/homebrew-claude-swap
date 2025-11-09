@@ -74,12 +74,64 @@ fetch_available_models() {
                 models=("MiniMax-M2" "MiniMax-M1")
             fi
             ;;
+        "kimi"|"moonshot")
+            log_info "Fetching available Kimi/Moonshot models..."
+
+            # Extract Moonshot models from OpenRouter data
+            if [[ -n "$openrouter_models" ]]; then
+                local max_lines=500  # NASA Rule 2: Fixed loop bound
+                local line_count=0
+                while IFS='|' read -r model_id context_length prompt_price completion_price; do
+                    if [[ $line_count -ge $max_lines ]]; then
+                        break
+                    fi
+                    if [[ "$model_id" == *moonshot* ]] || [[ "$model_id" == *kimi* ]]; then
+                        local clean_model="${model_id#*/}"
+                        models+=("$clean_model")
+                    fi
+                    line_count=$((line_count + 1))
+                done <<< "$openrouter_models"
+            fi
+
+            # Try Moonshot API directly if we have auth
+            if [[ -z "${models:-}" ]] || [[ ${#models[@]} -eq 0 ]] && command -v curl >/dev/null 2>&1 && [[ -n "$KIMI_AUTH_TOKEN" ]]; then
+                local kimi_models=$(curl -s --max-time 10 \
+                    -H "Authorization: Bearer $KIMI_AUTH_TOKEN" \
+                    "$KIMI_BASE_URL/models" 2>/dev/null | \
+                    jq -r '.data[].id // empty' 2>/dev/null | grep -E "(moonshot|kimi)" || echo "")
+
+                local max_kimi_lines=100  # NASA Rule 2: Fixed loop bound
+                local kimi_line_count=0
+                while IFS= read -r model; do
+                    if [[ $kimi_line_count -ge $max_kimi_lines ]]; then
+                        break
+                    fi
+                    [[ -n "$model" ]] && models+=("$model")
+                    kimi_line_count=$((kimi_line_count + 1))
+                done <<< "$kimi_models"
+            fi
+
+            # Fallback to known Kimi/Moonshot models
+            if [[ -z "${models:-}" ]] || [[ ${#models[@]} -eq 0 ]]; then
+                models=(
+                    "moonshot-v1-256k"
+                    "moonshot-v1-128k"
+                    "moonshot-v1-32k"
+                    "moonshot-v1-8k"
+                )
+            fi
+            ;;
         "zai"|"glm")
             log_info "Fetching available GLM models..."
 
             # Enhanced GLM model detection from OpenRouter data
             if [[ -n "$openrouter_models" ]]; then
+                local max_lines=500  # NASA Rule 2: Fixed loop bound
+                local line_count=0
                 while IFS='|' read -r model_id context_length prompt_price completion_price; do
+                    if [[ $line_count -ge $max_lines ]]; then
+                        break
+                    fi
                     # More comprehensive GLM model detection
                     if [[ "$model_id" == *glm* ]] || [[ "$model_id" == zhipuai/* ]] || [[ "$model_id" == *chatglm* ]]; then
                         local clean_model="${model_id#*/}"
@@ -112,6 +164,7 @@ fetch_available_models() {
                             *) models+=("$clean_model") ;;
                         esac
                     fi
+                    line_count=$((line_count + 1))
                 done <<< "$openrouter_models"
             fi
 
@@ -122,8 +175,14 @@ fetch_available_models() {
                     "$ZAI_BASE_URL/v1/models" 2>/dev/null | \
                     jq -r '.data[].id // empty' 2>/dev/null | grep glm || echo "")
 
+                local max_zai_lines=100  # NASA Rule 2: Fixed loop bound
+                local zai_line_count=0
                 while IFS= read -r model; do
+                    if [[ $zai_line_count -ge $max_zai_lines ]]; then
+                        break
+                    fi
                     [[ -n "$model" ]] && models+=("$model")
+                    zai_line_count=$((zai_line_count + 1))
                 done <<< "$zai_models"
             fi
 
@@ -142,20 +201,37 @@ fetch_available_models() {
     esac
 
     # Remove duplicates and sort (compatible with bash and zsh)
+    # NASA Rule 2: Fixed bounds on all loops
     local unique_models=()
+    local max_unique=200  # Fixed upper bound
+    local unique_count=0
+
     # Safe array iteration that works in both bash and zsh
     if [[ ${#models[@]} -gt 0 ]]; then
+        local max_models=500  # Fixed upper bound
+        local model_idx=0
         for model in "${models[@]}"; do
+            if [[ $model_idx -ge $max_models ]] || [[ $unique_count -ge $max_unique ]]; then
+                break
+            fi
             local found=0
+            local existing_idx=0
+            local max_existing=200  # Fixed upper bound for inner loop
             for existing in "${unique_models[@]}"; do
+                if [[ $existing_idx -ge $max_existing ]]; then
+                    break
+                fi
                 if [[ "$existing" == "$model" ]]; then
                     found=1
                     break
                 fi
+                existing_idx=$((existing_idx + 1))
             done
             if [[ $found -eq 0 ]]; then
                 unique_models+=("$model")
+                unique_count=$((unique_count + 1))
             fi
+            model_idx=$((model_idx + 1))
         done
     fi
 
