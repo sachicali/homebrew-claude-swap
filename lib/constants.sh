@@ -3,6 +3,9 @@
 # Constants and configuration
 # Single Responsibility: Define all constants and paths
 
+# Bash safety: exit on error, undefined vars, pipe failures
+set -euo pipefail
+
 # Paths
 readonly SETTINGS_FILE="$HOME/.claude/settings.json"
 readonly BACKUP_DIR="$HOME/.claude/backups"

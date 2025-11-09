@@ -3,7 +3,13 @@
 # Credential validation and setup
 # Single Responsibility: Handle all credential-related operations
 
+# Bash safety: exit on error, undefined vars, pipe failures
+set -euo pipefail
+
 # Note: constants.sh and logging.sh are sourced by the main claudeswap script
+
+# NASA Rule 2: Maximum iterations for interactive loops
+readonly MAX_INTERACTIVE_ATTEMPTS=50
 
 # Interactive credential setup for a specific service
 setup_service_credentials() {
@@ -33,13 +39,39 @@ setup_service_credentials() {
     local token
     IFS= read -r token
 
+    # Input validation: Check token
     if [[ -z "$token" ]]; then
         log_error "No token provided. Setup cancelled."
         return 1
     fi
 
+    # Basic token validation: Check length and format
+    local token_len=${#token}
+    if [[ $token_len -lt 10 ]]; then
+        log_error "Token too short (minimum 10 characters). Setup cancelled."
+        return 1
+    fi
+
+    # Check for suspicious characters that might indicate input errors
+    if [[ "$token" =~ [[:space:]] ]]; then
+        log_warning "Token contains whitespace - this may be incorrect"
+        printf "Continue anyway? (y/n) "
+        read -r confirm
+        if [[ ! $confirm =~ ^[Yy]$ ]]; then
+            log_info "Setup cancelled."
+            return 1
+        fi
+    fi
+
     # Show the token (partially masked)
-    local masked_token="${token:0:10}...${token: -4}"
+    # NASA Rule: Fix edge case for tokens < 14 characters
+    local masked_token
+    local token_length=${#token}
+    if [[ $token_length -lt 14 ]]; then
+        masked_token="${token:0:3}...${token: -2}"
+    else
+        masked_token="${token:0:10}...${token: -4}"
+    fi
     echo ""
     echo -e "${GREEN}✓${NC} Received token: ${masked_token}"
     echo ""
@@ -57,9 +89,10 @@ setup_service_credentials() {
         cp ~/.zshrc ~/.zshrc.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
 
         # Add to zshrc
+        # Security: Properly escape token to prevent injection
         echo "" >> ~/.zshrc
         echo "# $service API Token - Added by claudeswap" >> ~/.zshrc
-        echo "export $var_name=\"$token\"" >> ~/.zshrc
+        printf "export %s='%s'\n" "$var_name" "$token" >> ~/.zshrc
 
         echo -e "${GREEN}✓${NC} Token saved to ~/.zshrc"
         echo ""
@@ -93,7 +126,10 @@ setup_credentials_interactive() {
     echo "  4. Standard Anthropic (claude-sonnet, claude-haiku)"
     echo ""
 
-    while true; do
+    # NASA Rule 2: Fixed bound on interactive loop
+    local attempt=0
+    while [[ $attempt -lt $MAX_INTERACTIVE_ATTEMPTS ]]; do
+        attempt=$((attempt + 1))
         printf "Select provider (1-4): "
         read -r choice
 
@@ -164,6 +200,12 @@ setup_credentials_interactive() {
         esac
     done
 
+    # If we hit max attempts, log warning
+    if [[ $attempt -ge $MAX_INTERACTIVE_ATTEMPTS ]]; then
+        log_warning "Maximum attempts reached. Setup cancelled."
+        return 1
+    fi
+
     echo ""
     echo -e "${GREEN}✓ Setup complete!${NC}"
     echo ""
@@ -193,7 +235,10 @@ select_model_interactive() {
         printf "  %2d. %s%s\n" $((i+1)) "$model" "$details" >&2
     done
 
-    while true; do
+    # NASA Rule 2: Fixed bound on interactive loop
+    local attempt=0
+    while [[ $attempt -lt $MAX_INTERACTIVE_ATTEMPTS ]]; do
+        attempt=$((attempt + 1))
         echo "" >&2
         printf "Select model (1-${#available_models[@]}) or press Enter for default: " >&2
         read -r choice
@@ -217,6 +262,18 @@ select_model_interactive() {
             echo "Invalid selection. Please enter a number between 1 and ${#available_models[@]}" >&2
         fi
     done
+
+    # If we hit max attempts, log warning and return default
+    if [[ $attempt -ge $MAX_INTERACTIVE_ATTEMPTS ]]; then
+        log_warning "Maximum attempts reached. Using default model." >&2
+        case "$provider" in
+            "standard") echo "claude-sonnet-4-5-20250929" ;;
+            "minimax") echo "MiniMax-M2" ;;
+            "zai"|"glm") echo "glm-4.6" ;;
+            "kimi"|"moonshot") echo "moonshot-v1-256k" ;;
+        esac
+        return 0
+    fi
 }
 
 # Setup Anthropic credentials

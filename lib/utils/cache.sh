@@ -3,6 +3,9 @@
 # Model cache utilities (file-based for zsh compatibility)
 # Single Responsibility: Handle model extraction caching
 
+# Bash safety: exit on error, undefined vars, pipe failures
+set -euo pipefail
+
 # Note: constants.sh is sourced by the main claudeswap script
 
 # Cache file path
@@ -38,10 +41,16 @@ extract_session_model() {
     echo "${cache_key}:${model}" >> "$CACHE_FILE" 2>/dev/null || true
 
     # Trim cache file if it gets too large
+    # Security: Use mktemp for atomic operations
     local cache_lines=$(wc -l < "$CACHE_FILE" 2>/dev/null || echo 0)
     if [[ $cache_lines -gt $CACHE_SIZE_LIMIT ]]; then
-        tail -n $((CACHE_SIZE_LIMIT / 2)) "$CACHE_FILE" > "${CACHE_FILE}.tmp" 2>/dev/null || true
-        mv "${CACHE_FILE}.tmp" "$CACHE_FILE" 2>/dev/null || true
+        local temp_cache
+        temp_cache=$(mktemp) || return 0
+        trap "rm -f '$temp_cache'" RETURN
+
+        if tail -n $((CACHE_SIZE_LIMIT / 2)) "$CACHE_FILE" > "$temp_cache" 2>/dev/null; then
+            mv "$temp_cache" "$CACHE_FILE" 2>/dev/null || true
+        fi
     fi
 
     echo "$model"

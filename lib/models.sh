@@ -3,11 +3,20 @@
 # Model detection and mapping utilities
 # Single Responsibility: Handle model family detection and provider mapping
 
+# Bash safety: exit on error, undefined vars, pipe failures
+set -euo pipefail
+
 # Note: logging.sh is sourced by the main claudeswap script
 
 # Detect model family from model identifier
+# NASA Rule 7: Validate input parameter
 detect_model_family() {
-    local model_name="$1"
+    local model_name="${1:-unknown}"
+
+    if [[ -z "$model_name" ]]; then
+        echo "unknown"
+        return 0
+    fi
 
     case "$model_name" in
         # Standard Anthropic models

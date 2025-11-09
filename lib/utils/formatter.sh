@@ -3,9 +3,13 @@
 # Formatter utilities
 # Single Responsibility: Format data for display
 
+# Bash safety: exit on error, undefined vars, pipe failures
+set -euo pipefail
+
 # Format context length in human-readable form
+# NASA Rule 7: Validate input parameter
 format_context_length() {
-    local context_length="$1"
+    local context_length="${1:-}"
 
     if [[ -z "$context_length" ]] || [[ "$context_length" == "null" ]]; then
         return

@@ -3,6 +3,9 @@
 # Session management utilities
 # Single Responsibility: Handle session backup, restore, and compatibility
 
+# Bash safety: exit on error, undefined vars, pipe failures
+set -euo pipefail
+
 # Note: constants.sh, cache.sh, and logging.sh are sourced by the main claudeswap script
 
 # Create backup directory if it doesn't exist

@@ -3,6 +3,9 @@
 # Claude Swap - Modular Configuration Manager
 # Main entry point script with TIGERSTYLE modular architecture
 
+# Bash safety: exit on error, undefined vars, pipe failures
+set -euo pipefail
+
 readonly VERSION="1.2.8"
 
 # Determine script directory
@@ -43,14 +46,14 @@ fi
 readonly CLAUDESWAP_LOADED=1
 
 # Source all modular components with absolute paths
-source "$LIB_DIR/constants.sh"
-source "$LIB_DIR/logging.sh"
-source "$LIB_DIR/utils/cache.sh"
-source "$LIB_DIR/utils/formatter.sh"
-source "$LIB_DIR/models.sh"
-source "$LIB_DIR/sessions.sh"
-source "$LIB_DIR/providers/model_fetch.sh"
-source "$LIB_DIR/credentials.sh"
+# NASA Rule 7: Check file existence before sourcing
+for lib_file in "constants.sh" "logging.sh" "utils/cache.sh" "utils/formatter.sh" "models.sh" "sessions.sh" "providers/model_fetch.sh" "credentials.sh"; do
+    if [[ ! -f "$LIB_DIR/$lib_file" ]]; then
+        echo "ERROR: Required library file not found: $LIB_DIR/$lib_file" >&2
+        exit 1
+    fi
+    source "$LIB_DIR/$lib_file"
+done
 
 # ============================================================================
 # COMMAND HANDLERS
@@ -63,11 +66,14 @@ handle_status() {
     # Detect current provider
     if [[ -f "$SETTINGS_FILE" ]]; then
         current_provider=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_FILE" 2>/dev/null | grep -q "sk-ant" && echo "standard" || echo "unknown")
-        if [[ "$current_provider" == "unknown" ]] && [[ -n "$ZAI_API_KEY" ]]; then
+        if [[ "$current_provider" == "unknown" ]] && [[ -n "${ZAI_API_KEY:-}" ]]; then
             current_provider="zai"
         fi
-        if [[ "$current_provider" == "unknown" ]] && [[ -n "$MINIMAX_API_KEY" ]]; then
+        if [[ "$current_provider" == "unknown" ]] && [[ -n "${MINIMAX_API_KEY:-}" ]]; then
             current_provider="minimax"
+        fi
+        if [[ "$current_provider" == "unknown" ]] && [[ -n "${KIMI_API_KEY:-}" ]]; then
+            current_provider="kimi"
         fi
     fi
 
@@ -203,27 +209,41 @@ handle_set() {
 
     # Update settings.json with provider-specific configuration
     # NASA Rule 7: Check all return values
+    # Security: Use jq --arg to prevent injection
+    # Security: Use mktemp for atomic temp file handling
+    local temp_file
+    temp_file=$(mktemp "${SETTINGS_FILE}.XXXXXX") || {
+        log_error "Failed to create temporary file"
+        return 1
+    }
+
+    # Set up cleanup trap
+    trap "rm -f '$temp_file'" RETURN
+
     local jq_result=0
     if [[ -n "$base_url" ]]; then
         # Proxy providers (Z.ai, MiniMax, Kimi): Set ANTHROPIC_BASE_URL
-        jq ".env.ANTHROPIC_AUTH_TOKEN = \"$auth_token\" | .env.API_TIMEOUT_MS = \"$timeout_ms\" | .env.ANTHROPIC_BASE_URL = \"$base_url\"" "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+        jq --arg token "$auth_token" --arg timeout "$timeout_ms" --arg url "$base_url" \
+            '.env.ANTHROPIC_AUTH_TOKEN = $token | .env.API_TIMEOUT_MS = $timeout | .env.ANTHROPIC_BASE_URL = $url' \
+            "$SETTINGS_FILE" > "$temp_file"
         jq_result=$?
     else
         # Standard Anthropic: Remove ANTHROPIC_BASE_URL if it exists
-        jq ".env.ANTHROPIC_AUTH_TOKEN = \"$auth_token\" | .env.API_TIMEOUT_MS = \"$timeout_ms\" | del(.env.ANTHROPIC_BASE_URL)" "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+        jq --arg token "$auth_token" --arg timeout "$timeout_ms" \
+            '.env.ANTHROPIC_AUTH_TOKEN = $token | .env.API_TIMEOUT_MS = $timeout | del(.env.ANTHROPIC_BASE_URL)' \
+            "$SETTINGS_FILE" > "$temp_file"
         jq_result=$?
     fi
 
     if [[ $jq_result -eq 0 ]]; then
-        if ! mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"; then
+        # Atomic move
+        if ! mv "$temp_file" "$SETTINGS_FILE"; then
             log_error "Failed to save settings file"
-            rm -f "${SETTINGS_FILE}.tmp"
             return 1
         fi
         log_success "Switched to $provider$([[ -n "$model" ]] && echo " (model: $model)")$([[ -n "$base_url" ]] && echo " at $base_url")"
     else
         log_error "Failed to update settings file"
-        rm -f "${SETTINGS_FILE}.tmp"
         return 1
     fi
     return 0

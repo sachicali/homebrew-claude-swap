@@ -3,6 +3,15 @@
 # Model fetching utilities
 # Single Responsibility: Fetch available models from different providers
 
+# Bash safety: exit on error, undefined vars, pipe failures
+set -euo pipefail
+
+# NASA Rule 7: Check file existence before sourcing
+if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/logging.sh" ]] || [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/utils/formatter.sh" ]]; then
+    echo "ERROR: Required library files not found" >&2
+    exit 1
+fi
+
 source "${CLAUDE_SWAP_BASE_DIR}/lib/logging.sh"
 source "${CLAUDE_SWAP_BASE_DIR}/lib/utils/formatter.sh"
 
