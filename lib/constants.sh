@@ -44,6 +44,12 @@ readonly KIMI_TEMP_MULTIPLIER="0.6"  # Kimi requires temp * 0.6
 # Standard Configuration
 readonly STANDARD_TIMEOUT_DEFAULT="120000"
 
+# API Timeouts (for curl operations)
+readonly OPENROUTER_TIMEOUT="15"
+readonly PROVIDER_API_TIMEOUT="10"
+readonly MODEL_LINE_LIMIT="500"
+readonly MAX_MODELS_PER_PROVIDER="100"
+
 # Environment variables (with fallbacks)
 ZAI_BASE_URL="${CLAUDE_ZAI_BASE_URL:-$ZAI_BASE_URL_DEFAULT}"
 ZAI_AUTH_TOKEN="${CLAUDE_ZAI_AUTH_TOKEN:-}"
