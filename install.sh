@@ -209,7 +209,7 @@ EOF
 # Main installation
 main() {
     echo "╭─────────────────────────────────────────╮"
-    echo "│     ClaudeSwap Installer v1.4.0         │"
+    echo "│     ClaudeSwap Installer v1.5.0         │"
     echo "╰─────────────────────────────────────────╯"
     echo ""
 
@@ -244,10 +244,33 @@ main() {
     echo ""
     log_success "ClaudeSwap installed successfully!"
     echo ""
+
+    # Offer to run credential setup
+    echo "Would you like to configure your API credentials now? (recommended)"
+    read -p "Run setup? (Y/n): " run_setup
+    if [[ ! "$run_setup" =~ ^([Nn]|[Nn][Oo])$ ]]; then
+        echo ""
+        # Source shell to make claudeswap available
+        export PATH="$PATH:$INSTALL_DIR"
+        if command -v claudeswap >/dev/null 2>&1; then
+            claudeswap setup
+        else
+            "$INSTALL_DIR/claudeswap" setup
+        fi
+        echo ""
+    else
+        echo ""
+        echo "You can run credential setup later with:"
+        echo "  ${YELLOW}claudeswap setup${NC}"
+        echo ""
+    fi
+
     echo "Next steps:"
     echo "  1. Reload your shell: source ~/.zshrc (or ~/.bashrc)"
-    echo "  2. Run: claudeswap"
-    echo "  3. Set up your provider credentials"
+    echo "  2. Run: ${YELLOW}claudeswap${NC}"
+    if [[ "$run_setup" =~ ^([Nn]|[Nn][Oo])$ ]]; then
+        echo "  3. Set up credentials: ${YELLOW}claudeswap setup${NC}"
+    fi
     echo ""
 }
 
