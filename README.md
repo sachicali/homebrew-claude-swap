@@ -22,11 +22,25 @@ A safe and robust tool to swap between multiple AI providers: GLM (Z.ai), MiniMa
 
 ## ⚠️ IMPORTANT: Set Your Credentials First
 
-Before using this tool, you MUST configure your own API credentials:
+### Easy Setup (Recommended - NEW!)
 
-### 1. Add to Your Shell Configuration
+Run the **automated setup wizard**:
 
-Edit `~/.zshrc` (or `~/.bashrc`):
+```bash
+# After installation, run:
+claudeswap-setup
+```
+
+The setup wizard will:
+- ✓ Interactively prompt for your API tokens (password-masked)
+- ✓ Automatically detect your shell (zsh/bash)
+- ✓ Add credentials to the correct config file (~/.zshrc or ~/.bashrc)
+- ✓ Support optional providers (skip if you don't have access)
+- ✓ Create automatic backups before changes
+
+### Manual Setup (Alternative)
+
+If you prefer to configure manually, edit `~/.zshrc` (or `~/.bashrc`):
 
 ```bash
 # Z.ai Configuration (optional - only if you have access)
@@ -49,9 +63,7 @@ export CLAUDE_KIMI_BASE_URL="https://api.moonshot.cn/v1"  # For regular kimi pro
 export CLAUDE_STANDARD_TIMEOUT="120000"
 ```
 
-**Replace `your-zai-token-here`, `your-minimax-token-here`, and `your-kimi-token-here` with your actual tokens!**
-
-### 2. Reload Your Shell
+Then reload your shell:
 
 ```bash
 source ~/.zshrc
@@ -76,6 +88,7 @@ chmod +x install.sh
 **Benefits:**
 - Automatically downloads and installs claudeswap
 - Bundles Gum binary for your platform (no separate install needed!)
+- Optionally runs credential setup wizard
 - Configures PATH in your shell
 - Creates instance directories
 - Works on macOS, Linux (x86_64, arm64, armv7)

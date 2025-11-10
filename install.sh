@@ -138,6 +138,12 @@ install_claudeswap() {
         cp "$source_dir/claudeswap" "$INSTALL_DIR/claudeswap"
         chmod +x "$INSTALL_DIR/claudeswap"
 
+        # Copy setup script
+        if [[ -f "$source_dir/setup-credentials.sh" ]]; then
+            cp "$source_dir/setup-credentials.sh" "$INSTALL_DIR/claudeswap-setup"
+            chmod +x "$INSTALL_DIR/claudeswap-setup"
+        fi
+
         # Copy library files
         if [[ -d "$source_dir/lib" ]]; then
             cp -r "$source_dir/lib" "$LIB_DIR/"
@@ -159,6 +165,12 @@ install_claudeswap() {
         # Copy files
         cp "$temp_dir/claudeswap/claudeswap" "$INSTALL_DIR/claudeswap"
         chmod +x "$INSTALL_DIR/claudeswap"
+
+        # Copy setup script
+        if [[ -f "$temp_dir/claudeswap/setup-credentials.sh" ]]; then
+            cp "$temp_dir/claudeswap/setup-credentials.sh" "$INSTALL_DIR/claudeswap-setup"
+            chmod +x "$INSTALL_DIR/claudeswap-setup"
+        fi
 
         if [[ -d "$temp_dir/claudeswap/lib" ]]; then
             cp -r "$temp_dir/claudeswap/lib" "$LIB_DIR/"
@@ -209,7 +221,7 @@ EOF
 # Main installation
 main() {
     echo "╭─────────────────────────────────────────╮"
-    echo "│     ClaudeSwap Installer v1.4.0         │"
+    echo "│     ClaudeSwap Installer v1.5.0         │"
     echo "╰─────────────────────────────────────────╯"
     echo ""
 
@@ -244,10 +256,29 @@ main() {
     echo ""
     log_success "ClaudeSwap installed successfully!"
     echo ""
+
+    # Offer to run credential setup
+    if [[ -f "$INSTALL_DIR/claudeswap-setup" ]]; then
+        echo "Would you like to configure your API credentials now? (recommended)"
+        read -p "Run setup? (Y/n): " run_setup
+        if [[ ! "$run_setup" =~ ^[Nn]$ ]]; then
+            echo ""
+            "$INSTALL_DIR/claudeswap-setup"
+            echo ""
+        else
+            echo ""
+            echo "You can run credential setup later with:"
+            echo "  ${YELLOW}claudeswap-setup${NC}"
+            echo ""
+        fi
+    fi
+
     echo "Next steps:"
     echo "  1. Reload your shell: source ~/.zshrc (or ~/.bashrc)"
-    echo "  2. Run: claudeswap"
-    echo "  3. Set up your provider credentials"
+    echo "  2. Run: ${YELLOW}claudeswap${NC}"
+    if [[ ! -f "$INSTALL_DIR/claudeswap-setup" ]] || [[ "$run_setup" =~ ^[Nn]$ ]]; then
+        echo "  3. Set up credentials: ${YELLOW}claudeswap-setup${NC}"
+    fi
     echo ""
 }
 
