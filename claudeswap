@@ -6,7 +6,7 @@
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 
-readonly VERSION="1.4.0"
+readonly VERSION="1.5.0"
 
 # Determine script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,7 +47,7 @@ readonly CLAUDESWAP_LOADED=1
 
 # Source all modular components with absolute paths
 # NASA Rule 7: Check file existence before sourcing
-for lib_file in "constants.sh" "logging.sh" "utils/cache.sh" "utils/formatter.sh" "models.sh" "sessions.sh" "providers/model_fetch.sh" "credentials.sh"; do
+for lib_file in "constants.sh" "logging.sh" "utils/cache.sh" "utils/formatter.sh" "models.sh" "sessions.sh" "providers/model_fetch.sh" "credentials.sh" "instance_manager.sh"; do
     if [[ ! -f "$LIB_DIR/$lib_file" ]]; then
         echo "ERROR: Required library file not found: $LIB_DIR/$lib_file" >&2
         exit 1
@@ -372,6 +372,50 @@ main() {
         "clear")
             handle_clear
             ;;
+        "instances"|"list")
+            # List all provider instances
+            list_instances | column -t -s'|'
+            ;;
+        "init")
+            # Initialize instance for a provider
+            if [[ $# -lt 1 ]]; then
+                log_error "Usage: claudeswap init <provider>"
+                return 1
+            fi
+            init_instance "$1"
+            ;;
+        "activate")
+            # Activate a provider instance
+            if [[ $# -lt 1 ]]; then
+                log_error "Usage: claudeswap activate <provider>"
+                return 1
+            fi
+            activate_instance "$1"
+            ;;
+        "exec")
+            # Execute command with provider switch
+            # Usage: claudeswap exec <provider> <command...>
+            if [[ $# -lt 2 ]]; then
+                log_error "Usage: claudeswap exec <provider> <command...>"
+                return 1
+            fi
+            local exec_provider="$1"
+            shift
+
+            # Activate instance
+            activate_instance "$exec_provider" || return 1
+
+            # Detect Claude CLI path
+            local claude_cmd="${CLAUDESWAP_CLAUDE_PATH:-claude}"
+            if ! command -v "$claude_cmd" >/dev/null 2>&1; then
+                log_error "Claude CLI not found. Set CLAUDESWAP_CLAUDE_PATH if needed."
+                return 1
+            fi
+
+            # Execute command
+            log_info "Executing with provider: $exec_provider"
+            "$claude_cmd" "$@"
+            ;;
         "version"|"--version"|"-v")
             echo "claudeswap version $VERSION"
             if [[ "$TUI_AVAILABLE" == true ]]; then
@@ -381,32 +425,48 @@ main() {
             fi
             ;;
         "help"|"--help"|"-h")
-            echo "Claude Swap - Configuration Manager"
+            echo "Claude Swap - Multi-Provider Configuration Manager"
             echo ""
             echo "Usage: claudeswap [command] [options]"
             echo ""
             echo "Commands:"
-            echo "  tui            Launch interactive TUI mode (default if no command)"
-            echo "  status         Show current configuration status"
-            echo "  test-models    Test and display available models"
-            echo "  set <provider> Switch to specified provider"
-            echo "  setup          Interactive credential setup"
-            echo "  backup         Backup current sessions"
-            echo "  clear          Clear all sessions"
-            echo "  version        Show version information"
-            echo "  help           Show this help message"
+            echo "  tui                Launch interactive TUI mode (default if no command)"
+            echo "  status             Show current configuration status"
+            echo "  test-models        Test and display available models"
+            echo "  set <provider>     Switch to specified provider"
+            echo "  setup              Interactive credential setup"
+            echo "  backup             Backup current sessions"
+            echo "  clear              Clear all sessions"
+            echo ""
+            echo "Instance Management (CCS-style):"
+            echo "  instances / list   List all provider instances"
+            echo "  init <provider>    Initialize isolated instance for provider"
+            echo "  activate <prov>    Activate a provider instance"
+            echo "  exec <prov> <cmd>  Execute Claude command with provider"
+            echo "  <provider> [cmd]   Direct execution (shorthand for exec)"
             echo ""
             echo "Options:"
-            echo "  --tui          Explicitly enter TUI mode"
-            echo "  --no-tui       Disable TUI mode"
+            echo "  --tui              Explicitly enter TUI mode"
+            echo "  --no-tui           Disable TUI mode"
+            echo ""
+            echo "Supported Providers:"
+            echo "  standard           Anthropic official API"
+            echo "  zai                Z.ai / GLM models"
+            echo "  kimi / moonshot    Moonshot AI (256K context)"
+            echo "  minimax            MiniMax models"
             echo ""
             echo "Examples:"
-            echo "  claudeswap                # Enter TUI mode (if Gum installed)"
-            echo "  claudeswap tui            # Explicit TUI mode"
-            echo "  claudeswap status         # CLI mode - show status"
-            echo "  claudeswap test-models zai"
-            echo "  claudeswap set zai glm-4.6"
-            echo "  claudeswap setup          # Interactive credential setup"
+            echo "  claudeswap                        # Enter TUI mode"
+            echo "  claudeswap status                 # Show status"
+            echo "  claudeswap set kimi               # Switch to Kimi"
+            echo "  claudeswap kimi \"write code\"      # Execute with Kimi (CCS-style)"
+            echo "  claudeswap exec zai \"fix bug\"     # Execute with Z.ai"
+            echo "  claudeswap instances              # List all instances"
+            echo ""
+            echo "Environment Variables:"
+            echo "  CLAUDESWAP_CLAUDE_PATH            Custom Claude CLI path"
+            echo "  CLAUDESWAP_TUI_MODE               TUI mode: auto/always/never"
+            echo "  CLAUDESWAP_INSTALL_DIR            Installation directory"
             echo ""
             if [[ "$TUI_AVAILABLE" == true ]]; then
                 echo "TUI Mode: ✓ Available (Gum installed)"
@@ -414,6 +474,31 @@ main() {
                 echo "TUI Mode: ✗ Not available (install: brew install gum)"
             fi
             echo ""
+            echo "Installation:"
+            echo "  curl -fsSL https://raw.githubusercontent.com/sachicali/homebrew-claudeswap/main/install.sh | bash"
+            echo ""
+            ;;
+        standard|zai|kimi|minimax|moonshot)
+            # Direct provider execution (CCS-style)
+            # Usage: claudeswap <provider> [command...]
+            if [[ $# -gt 0 ]]; then
+                # Has additional arguments - execute with provider
+                log_info "Direct execution mode: $command"
+                activate_instance "$command" || return 1
+
+                # Detect Claude CLI
+                local claude_cmd="${CLAUDESWAP_CLAUDE_PATH:-claude}"
+                if ! command -v "$claude_cmd" >/dev/null 2>&1; then
+                    log_error "Claude CLI not found. Set CLAUDESWAP_CLAUDE_PATH if needed."
+                    return 1
+                fi
+
+                # Execute command
+                "$claude_cmd" "$@"
+            else
+                # No additional arguments - just switch provider
+                handle_set "$command"
+            fi
             ;;
         *)
             if [[ -z "$command" ]]; then

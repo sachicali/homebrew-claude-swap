@@ -37,14 +37,38 @@ source ~/.zshrc
 
 ## Installation
 
-### Option 1: From GitHub (Recommended)
+### Option 1: Auto-Installer (Recommended - NEW!)
+
+**One-line install with bundled Gum:**
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/sachicali/homebrew-claudeswap/main/install.sh | bash
+
+# Or download and run:
+wget https://raw.githubusercontent.com/sachicali/homebrew-claudeswap/main/install.sh
+chmod +x install.sh
+./install.sh
+```
+
+**Benefits:**
+- Automatically downloads and installs claudeswap
+- Bundles Gum binary for your platform (no separate install needed!)
+- Configures PATH in your shell
+- Creates instance directories
+- Works on macOS, Linux (x86_64, arm64, armv7)
+
+### Option 2: Homebrew
 
 ```bash
 # Install from the GitHub repository
 brew install sachicali/homebrew-claudeswap/claudeswap
+
+# Then install Gum for TUI mode:
+brew install gum
 ```
 
-### Option 2: Manual Homebrew Formula
+### Option 3: Manual Homebrew Formula
 
 1. Tap the repository:
 ```bash
@@ -100,6 +124,65 @@ claudeswap --tui
 ```bash
 # Force CLI mode if needed
 claudeswap --no-tui status
+```
+
+## 🚀 CCS-Style Concurrent Execution (NEW in v1.5.0!)
+
+Inspired by [CCS (Claude Code Switch)](https://github.com/kaitranntt/ccs), claudeswap now supports:
+
+### Instance Isolation
+Each provider gets its own isolated instance directory at `~/.claude/instances/<provider>/`:
+- Separate session files
+- Independent configuration
+- No conflicts between providers
+
+### Direct Command Execution
+Execute Claude commands directly with provider switching:
+
+```bash
+# CCS-style shorthand - switch and execute in one command
+claudeswap kimi "write a bash script"
+claudeswap zai "fix this bug"
+claudeswap standard "review code"
+
+# Explicit exec command
+claudeswap exec kimi "implement feature"
+```
+
+### Concurrent Multi-Provider Usage
+Run different providers simultaneously in separate terminals:
+
+```bash
+# Terminal 1: Work with Kimi
+claudeswap kimi "implement authentication"
+
+# Terminal 2: Use Z.ai simultaneously (no conflict!)
+claudeswap zai "write tests"
+
+# Terminal 3: Standard API for quick queries
+claudeswap standard "explain this code"
+```
+
+### Instance Management
+
+```bash
+# List all provider instances
+claudeswap instances
+claudeswap list
+
+# Initialize new instance
+claudeswap init kimi
+
+# Activate specific instance
+claudeswap activate zai
+```
+
+### Custom Claude Path
+Set custom Claude CLI location:
+
+```bash
+export CLAUDESWAP_CLAUDE_PATH="/custom/path/to/claude"
+claudeswap kimi "write code"
 ```
 
 ## Usage
