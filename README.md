@@ -93,14 +93,13 @@ chmod +x install.sh
 - Creates instance directories
 - Works on macOS, Linux (x86_64, arm64, armv7)
 
-### Option 2: Homebrew
+### Option 2: Homebrew (Recommended for macOS)
 
 ```bash
-# Install from the GitHub repository
+# Install from the GitHub repository (includes Gum dependency)
 brew install sachicali/homebrew-claudeswap/claudeswap
 
-# Then install Gum for TUI mode:
-brew install gum
+# Gum is automatically installed as a dependency for TUI mode! 🎉
 ```
 
 ### Option 3: Manual Homebrew Formula
@@ -110,7 +109,7 @@ brew install gum
 brew tap sachicali/claudeswap
 ```
 
-2. Install the formula:
+2. Install the formula (includes Gum):
 ```bash
 brew install claudeswap
 ```
@@ -120,6 +119,10 @@ brew install claudeswap
 ClaudeSwap now features an interactive TUI (Text User Interface) powered by [Charmbracelet Gum](https://github.com/charmbracelet/gum)!
 
 ### Installing Gum (Required for TUI)
+
+**Good news!** If you installed via Homebrew, Gum is already included as a dependency! 🎉
+
+For other installation methods:
 
 ```bash
 # macOS
@@ -133,6 +136,9 @@ sudo apt update && sudo apt install gum
 
 # Arch Linux
 pacman -S gum
+
+# Or use the auto-installer which bundles Gum
+curl -fsSL https://raw.githubusercontent.com/sachicali/homebrew-claudeswap/main/install.sh | bash
 ```
 
 ### Using TUI Mode
@@ -145,6 +151,16 @@ claudeswap
 claudeswap tui
 claudeswap --tui
 ```
+
+**First-Run Experience:**
+- 🎉 **Welcome Screen** - Friendly onboarding on first run
+- 🚀 **Auto Setup Prompt** - Automatically offers to configure credentials if none found
+- ⚡ **Quick Start** - Get up and running in seconds
+
+**TUI Controls:**
+- ⬆️⬇️ **Arrow Keys** - Navigate menu options
+- ⏎ **Enter** - Select current option
+- **ESC** - Cancel/Exit gracefully (no more error loops!)
 
 **TUI Features:**
 - 🔄 **Interactive Provider Selection** - Browse and switch providers with visual status indicators

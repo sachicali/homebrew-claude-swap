@@ -9,6 +9,7 @@ class Claudeswap < Formula
 
   depends_on "jq"
   depends_on "curl"
+  depends_on "gum"
 
   def install
     # Install the main script
@@ -31,6 +32,34 @@ class Claudeswap < Formula
     doc.install "LICENSE"
     doc.install "SETUP-GUIDE.md"
     doc.install "example-configs.md"
+  end
+
+  def caveats
+    <<~EOS
+      ClaudeSwap has been installed with TUI mode enabled! 🎉
+
+      To get started:
+        1. Run credential setup:
+           $ claudeswap setup
+
+        2. Launch the interactive TUI:
+           $ claudeswap
+
+        3. Or use CLI commands directly:
+           $ claudeswap set kimi
+           $ claudeswap status
+
+      TUI Controls:
+        • Arrow keys to navigate
+        • Enter to select
+        • ESC to cancel/exit
+
+      Documentation:
+        #{HOMEBREW_PREFIX}/share/doc/claudeswap/README.md
+        #{HOMEBREW_PREFIX}/share/doc/claudeswap/SETUP-GUIDE.md
+
+      For help: claudeswap help
+    EOS
   end
 
   # Test disabled temporarily to avoid issues with modular file loading during installation

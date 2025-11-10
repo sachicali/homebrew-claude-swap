@@ -312,11 +312,81 @@ validate_provider() {
 }
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+# Check if any credentials are configured
+check_credentials_configured() {
+    # Check for standard Anthropic key
+    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+        return 0
+    fi
+
+    # Check settings file
+    if [[ -f "$SETTINGS_FILE" ]]; then
+        local token
+        token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_FILE" 2>/dev/null)
+        if [[ -n "$token" ]] && [[ "$token" != "null" ]]; then
+            return 0
+        fi
+    fi
+
+    # Check for alternative provider keys
+    if [[ -n "${ZAI_API_KEY:-}" ]] || [[ -n "${MINIMAX_API_KEY:-}" ]] || [[ -n "${KIMI_API_KEY:-}" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Show first-run welcome and offer setup
+show_first_run_welcome() {
+    if [[ "$TUI_AVAILABLE" == true ]]; then
+        gum style \
+            --border rounded \
+            --border-foreground 212 \
+            --padding "1 2" \
+            --margin "1" \
+            --align center \
+            "Welcome to ClaudeSwap! 🎉" \
+            "" \
+            "It looks like you haven't set up any API credentials yet." \
+            "Would you like to configure them now?"
+
+        if gum confirm "Run credential setup?"; then
+            handle_setup
+        else
+            gum style --foreground 214 "You can run setup later with: claudeswap setup"
+        fi
+    else
+        echo ""
+        echo "╭─────────────────────────────────────────────╮"
+        echo "│       Welcome to ClaudeSwap! 🎉             │"
+        echo "╰─────────────────────────────────────────────╯"
+        echo ""
+        log_warning "No API credentials configured."
+        log_info "Run 'claudeswap setup' to configure your credentials."
+        echo ""
+    fi
+}
+
+# ============================================================================
 # MAIN ENTRY POINT
 # ============================================================================
 
 main() {
     local command="${1:-}"
+
+    # Check for first run (no credentials configured) and offer setup
+    if [[ -z "$command" ]] && ! check_credentials_configured; then
+        show_first_run_welcome
+        if [[ "$TUI_AVAILABLE" == true ]]; then
+            # After setup, enter TUI mode
+            run_tui_main_loop
+            return $?
+        fi
+        return 0
+    fi
 
     # Handle TUI mode - if no command and TUI available, enter TUI mode
     if [[ -z "$command" ]] && [[ "$TUI_AVAILABLE" == true ]]; then
