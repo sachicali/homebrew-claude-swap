@@ -67,6 +67,82 @@ D setup-credentials.sh       (-312 lines)
 
 1. `bfceeeb` - Add automated credential setup wizard and v1.5.0 improvements
 2. `69bf5d2` - Integrate credential setup into claudeswap CLI command
+3. `0ba22ff` - Update CODE_REVIEW_FIXES.md with comprehensive review status
+4. `1a28b93` - Address all PR review comments from Sourcery and Codex
+
+---
+
+## Current PR Review Fixes (Just Completed)
+
+### PR #3 Review Comments (Sourcery AI + Codex)
+
+All 6 issues from automated code review have been addressed:
+
+#### 1. 🚨 **P1 Security Issue** - Password Prompt Never Appears
+**Location:** `lib/credentials.sh:43-75`
+**Issue:** `read -s -p` prompt redirected to `/dev/null`, users see blank screen
+**Fix Applied:**
+- Show prompt explicitly with `printf "%s" "$prompt" >&2`
+- Don't redirect stderr (prompt needs to be visible)
+- If masking fails, warn user with security message
+- Require explicit "yes" confirmation to proceed without masking
+- Abort if user declines
+**Status:** ✅ Fixed in commit `1a28b93`
+
+#### 2. 🔒 **Bug Risk** - Backup Creates Empty Config Files
+**Location:** `lib/credentials.sh:163-177`
+**Issue:** `touch "$config_file"` creates empty file when none exists
+**Fix Applied:**
+```bash
+if [[ -f "$config_file" ]]; then
+    # Only backup if exists
+    cp "$config_file" "$backup_file"
+else
+    # Warn user, then create
+    echo "⚠ Config file does not exist. Creating new file."
+    touch "$config_file"
+fi
+```
+**Status:** ✅ Fixed in commit `1a28b93`
+
+#### 3. 🌍 **Platform Compatibility** - sed Beyond macOS/Linux
+**Location:** `lib/credentials.sh:184-197`
+**Issue:** Current approach may fail on FreeBSD, WSL, Cygwin
+**Fix Applied:**
+- Added FreeBSD detection (`freebsd*` OSTYPE)
+- Added WSL detection (`WSL_DISTRO_NAME` env var)
+- Added Cygwin/MSYS detection
+- All use appropriate sed syntax (BSD vs GNU)
+- Error checking for sed operations
+**Status:** ✅ Fixed in commit `1a28b93`
+
+#### 4. 🛡️ **Security Risk** - Dynamic Variable Export
+**Location:** `lib/credentials.sh:37-46, 84-88, 219, 225`
+**Issue:** Exporting with dynamic names without validation
+**Fix Applied:**
+- Created `validate_var_name()` function
+- Validates: `^[a-zA-Z_][a-zA-Z0-9_]*$`
+- Called at function entry (early validation)
+- Prevents injection via invalid variable names
+**Status:** ✅ Fixed in commit `1a28b93`
+
+#### 5. 📝 **UX Improvement** - Accept "no", "NO", Not Just "n"
+**Location:** `install.sh:251, 271`
+**Issue:** Only single 'N' or 'n' recognized as negative
+**Fix Applied:**
+- Updated regex: `^([Nn]|[Nn][Oo])$`
+- Accepts: n, N, no, No, NO
+- Better user experience
+**Status:** ✅ Fixed in commit `1a28b93`
+
+#### 6. 📋 **Documentation** - Update Review Status
+**Location:** `CODE_REVIEW_FIXES.md`
+**Issue:** Document all review comments and their resolution
+**Fix Applied:**
+- Added comprehensive PR review section
+- Documented each issue with location, fix, status
+- Updated verification checklist
+**Status:** ✅ Fixed in commit `0ba22ff`
 
 ---
 
@@ -331,6 +407,13 @@ grep -r "PLACEHOLDER\|TODO\|FIXME" *.rb *.sh
 
 | Review Item | Status | Commit |
 |-------------|--------|--------|
+| **PR #3 Reviews (Current)** | | |
+| P1: Password prompt never appears | ✅ Fixed | `1a28b93` |
+| Bug: Backup creates empty files | ✅ Fixed | `1a28b93` |
+| Platform: sed compatibility (FreeBSD/WSL) | ✅ Fixed | `1a28b93` |
+| Security: Dynamic variable export | ✅ Fixed | `1a28b93` |
+| UX: Accept "no", not just "n" | ✅ Fixed | `1a28b93` |
+| **Previous Reviews** | | |
 | Syntax error (duplicate semicolon) | ✅ Fixed | `79e4b40` |
 | Version mismatch | ✅ Fixed | `79e4b40` |
 | Magic numbers | ✅ Fixed | `468fac5` |
@@ -338,13 +421,13 @@ grep -r "PLACEHOLDER\|TODO\|FIXME" *.rb *.sh
 | Bash 3.2 compatibility | ✅ Fixed | `a14d9ba` |
 | Centralized constants | ✅ Fixed | `8dba0a6` |
 | Manual credential setup | ✅ Fixed | `69bf5d2` |
-| Security (token display) | ✅ Fixed | `69bf5d2` |
+| Security (token display in original) | ✅ Fixed | `69bf5d2` |
 | Shell detection | ✅ Fixed | `69bf5d2` |
 | Multi-provider support | ✅ Fixed | `69bf5d2` |
 | Separate executable | ✅ Fixed | `69bf5d2` |
 
-**Total Issues:** 11
-**Fixed:** 11
+**Total Issues:** 16
+**Fixed:** 16
 **Pending:** 0
 
 ---
