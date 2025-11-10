@@ -43,20 +43,29 @@ fetch_openrouter_data() {
 }
 
 # Deduplicate model list (NASA Rule 2: Fixed bounds)
+# Bash 3.2 compatible - uses eval instead of nameref
 deduplicate_models() {
-    local -n input_models=$1
+    local array_name="$1"
     local unique_models=()
     local unique_count=0
     local model_idx=0
 
-    if [[ ${#input_models[@]} -eq 0 ]]; then
+    # Use eval to access array by name (bash 3.2 compatible)
+    local input_size
+    eval "input_size=\${#${array_name}[@]}"
+
+    if [[ $input_size -eq 0 ]]; then
         return 0
     fi
 
-    for model in "${input_models[@]}"; do
+    local idx=0
+    while [[ $idx -lt $input_size ]]; do
         if [[ $model_idx -ge $MAX_FETCH_MODELS ]] || [[ $unique_count -ge $MAX_UNIQUE_MODELS ]]; then
             break
         fi
+
+        local model
+        eval "model=\${${array_name}[$idx]}"
 
         local found=0
         local existing_idx=0
@@ -76,6 +85,7 @@ deduplicate_models() {
             unique_count=$((unique_count + 1))
         fi
         model_idx=$((model_idx + 1))
+        idx=$((idx + 1))
     done
 
     printf '%s\n' "${unique_models[@]}"
@@ -280,18 +290,31 @@ fetch_available_models() {
     openrouter_models=$(fetch_openrouter_data) || openrouter_models=""
 
     # Dispatch to provider-specific function
+    # Bash 3.2 compatible - use while loop instead of readarray
     case "$provider" in
         "standard")
-            readarray -t models < <(fetch_standard_models "$openrouter_models")
+            models=()
+            while IFS= read -r line; do
+                models+=("$line")
+            done < <(fetch_standard_models "$openrouter_models")
             ;;
         "minimax")
-            readarray -t models < <(fetch_minimax_models "$openrouter_models")
+            models=()
+            while IFS= read -r line; do
+                models+=("$line")
+            done < <(fetch_minimax_models "$openrouter_models")
             ;;
         "kimi"|"moonshot")
-            readarray -t models < <(fetch_kimi_models "$openrouter_models")
+            models=()
+            while IFS= read -r line; do
+                models+=("$line")
+            done < <(fetch_kimi_models "$openrouter_models")
             ;;
         "zai"|"glm")
-            readarray -t models < <(fetch_glm_models "$openrouter_models")
+            models=()
+            while IFS= read -r line; do
+                models+=("$line")
+            done < <(fetch_glm_models "$openrouter_models")
             ;;
         *)
             log_error "Unknown provider: $provider"
@@ -299,8 +322,8 @@ fetch_available_models() {
             ;;
     esac
 
-    # Deduplicate results
-    deduplicate_models models
+    # Deduplicate results (pass array name as string)
+    deduplicate_models "models"
 }
 
 # Get detailed model information from OpenRouter data
