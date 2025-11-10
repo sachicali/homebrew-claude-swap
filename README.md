@@ -1,6 +1,24 @@
 # Claude Swap
 
-A safe and robust tool to swap between multiple AI providers: GLM (Z.ai), MiniMax, Kimi/Moonshot, and standard Anthropic Claude with dynamic model mapping and performance optimization.
+**Version 1.5.0** | [Release Notes](RELEASE_NOTES_v1.5.0.md) | [Changelog](CHANGELOG.md)
+
+A safe and robust tool to swap between multiple AI providers: GLM (Z.ai), MiniMax, Kimi/Moonshot, and standard Anthropic Claude with dynamic model mapping, concurrent execution, and performance optimization.
+
+## ✨ What's New in v1.5.0
+
+**🚀 Major Features:**
+- **CCS-Style Concurrent Execution** - Run multiple providers simultaneously with instance isolation
+- **Official Kimi for Coding** - Full support for Moonshot's coding membership plan
+- **Kimi K2 Turbo** - 4x faster performance at 40 tokens/sec
+- **Auto-Installer** - One-line installation with bundled Gum
+
+**🐛 Critical Fixes:**
+- Fixed syntax error in model mapping (duplicate semicolon)
+- Updated version consistency across all components
+- Bash 3.2 compatibility improvements
+- Centralized configuration constants
+
+**📚 Full Details:** See [Release Notes](RELEASE_NOTES_v1.5.0.md) for complete changelog and upgrade instructions.
 
 ## ⚠️ IMPORTANT: Set Your Credentials First
 
@@ -278,13 +296,19 @@ claudeswap version
 - Timeout: 120000ms (2 minutes) - customizable via `CLAUDE_STANDARD_TIMEOUT`
 - Restores your original API key
 
-## 🚀 New Features in v1.2.0
+## 🎯 Key Features
 
 ### Dynamic Model Mapping
 - **Universal Model Support**: Automatically detects and maps any model type (sonnet, haiku, opus, GLM, MiniMax, Kimi)
 - **Provider-Agnostic**: Seamlessly switch between Anthropic, MiniMax, GLM, and Kimi/Moonshot providers
 - **Smart Detection**: Identifies model families and performance tiers
-- **Future-Proof**: Handles new model releases automatically including Kimi K2 Thinking (Nov 2025)
+- **Future-Proof**: Handles new model releases automatically
+
+### Concurrent Multi-Provider Support (v1.5.0)
+- **Instance Isolation**: Each provider gets its own `~/.claude/instances/<provider>/` directory
+- **Zero Conflicts**: Run different providers simultaneously in separate terminals
+- **Direct Execution**: `claudeswap kimi "write code"` shorthand syntax
+- **CCS-Compatible**: Inspired by Claude Code Switch architecture
 
 ### Session Compatibility
 - **Fixes `claude --continue` Errors**: Resolves "Unknown Model" and "Invalid signature" issues
@@ -292,16 +316,11 @@ claudeswap version
 - **Interactive Options**: Choose to transform, backup, or clear sessions when switching
 - **Preserved History**: Maintain conversation continuity across providers
 
-### Performance Optimization
-- **Parallel Processing**: Multi-threaded session transformations
+### Performance & Reliability
+- **Bash 3.2 Compatible**: Works on macOS default bash and all modern systems
+- **NASA-Style Safety**: Error checking, bounded loops, atomic operations
 - **Smart Caching**: Model extraction cache with LRU eviction
-- **Bulk Operations**: Optimized JSON processing for faster transformations
-- **Performance Monitoring**: Built-in benchmarking and optimization recommendations
-
-### Advanced Session Management
-- **Session Analysis**: Discover all models in your current sessions
-- **Selective Backup**: Backup sessions before provider switches
-- **Progress Tracking**: Real-time progress for large session sets
+- **Optimized Processing**: Fast JSON operations and provider switching
 
 ## Safety Features
 
@@ -363,6 +382,8 @@ Backups are automatically created in:
 
 ## Environment Variables
 
+### Provider Configuration
+
 You can customize all timeouts and URLs:
 
 ```bash
@@ -381,15 +402,57 @@ export CLAUDE_KIMI_AUTH_TOKEN="your-token"
 export CLAUDE_KIMI_BASE_URL="https://api.moonshot.cn/v1"
 export CLAUDE_KIMI_TIMEOUT="3000000"  # 50 minutes
 
+# Kimi for Coding (optional - uses same auth token)
+export CLAUDE_KIMI_FOR_CODING_BASE_URL="https://api.kimi.com/coding/"
+export CLAUDE_KIMI_FOR_CODING_TIMEOUT="3000000"  # 50 minutes
+
 # Standard
 export CLAUDE_STANDARD_TIMEOUT="120000"  # 2 minutes
 ```
 
+### ClaudeSwap Configuration (v1.5.0+)
+
+```bash
+# Custom Claude CLI path (like CCS)
+export CLAUDESWAP_CLAUDE_PATH="/custom/path/to/claude"
+
+# Custom installation directories
+export CLAUDESWAP_INSTALL_DIR="$HOME/.local/bin"
+export CLAUDESWAP_LIB_DIR="$HOME/.local/lib/claudeswap"
+
+# TUI mode preference
+export CLAUDESWAP_TUI_MODE="auto"  # auto, always, never
+```
+
+## Upgrading
+
+### From v1.2.x to v1.5.0
+
+```bash
+# If installed via Homebrew
+brew update
+brew upgrade claudeswap
+
+# If installed via install.sh
+curl -fsSL https://raw.githubusercontent.com/sachicali/homebrew-claudeswap/main/install.sh | bash
+
+# Reload your shell
+source ~/.zshrc
+```
+
+**Note:** v1.5.0 is fully backward compatible - no breaking changes!
+
 ## Uninstallation
 
 ```bash
+# Homebrew installation
 brew uninstall claudeswap
 brew untap sachicali/claudeswap
+
+# Manual installation
+rm -f ~/.local/bin/claudeswap
+rm -rf ~/.local/lib/claudeswap
+# Remove PATH entry from ~/.zshrc or ~/.bashrc
 ```
 
 ## Troubleshooting
@@ -419,7 +482,35 @@ brew install jq
 - Tokens stored only in your environment variables
 - Automatic backups of settings (without exposing tokens)
 - All token validation is local
+- Atomic file operations prevent corruption
+- Input sanitization prevents injection attacks
+
+For security concerns or to report vulnerabilities, see [SECURITY.md](SECURITY.md)
+
+## Documentation
+
+- **[Release Notes](RELEASE_NOTES_v1.5.0.md)** - What's new in v1.5.0
+- **[Changelog](CHANGELOG.md)** - Complete version history
+- **[Security](SECURITY.md)** - Security best practices and reporting
+- **[Architecture](ARCHITECTURE.md)** - System design and components
+- **[Setup Guide](SETUP-GUIDE.md)** - Detailed setup instructions
+- **[Example Configs](example-configs.md)** - Configuration examples
+
+## Acknowledgments
+
+**Inspired by:**
+- **[CCS (Claude Code Switch)](https://github.com/kaitranntt/ccs)** - Instance isolation and concurrent execution architecture
+- **[Charmbracelet Gum](https://github.com/charmbracelet/gum)** - Beautiful TUI components
+- **Moonshot AI** - Official Kimi for Coding integration
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ## License
 
-MIT
+MIT License - See [LICENSE](LICENSE) for details
+
+---
+
+**ClaudeSwap v1.5.0** - Swap AI providers with confidence 🚀
