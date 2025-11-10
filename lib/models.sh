@@ -110,7 +110,7 @@ map_model_to_provider() {
             # Official Moonshot Kimi for Coding Plan (Membership-based)
             # Dedicated endpoint: https://api.kimi.com/coding/
             # Model name is always "kimi-for-coding" regardless of family
-            echo "kimi-for-coding" ;;
+            echo "kimi-for-coding"
             ;;
         *)
             # Unknown provider - use safe defaults
