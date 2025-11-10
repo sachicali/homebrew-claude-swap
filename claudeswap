@@ -6,7 +6,7 @@
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 
-readonly VERSION="1.2.8"
+readonly VERSION="1.4.0"
 
 # Determine script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,6 +54,16 @@ for lib_file in "constants.sh" "logging.sh" "utils/cache.sh" "utils/formatter.sh
     fi
     source "$LIB_DIR/$lib_file"
 done
+
+# Source TUI components (optional - graceful degradation)
+TUI_AVAILABLE=false
+if [[ -f "$LIB_DIR/tui/gum_utils.sh" ]] && [[ -f "$LIB_DIR/tui/main_menu.sh" ]]; then
+    source "$LIB_DIR/tui/gum_utils.sh"
+    if check_gum_installed; then
+        TUI_AVAILABLE=true
+        source "$LIB_DIR/tui/main_menu.sh"
+    fi
+fi
 
 # ============================================================================
 # COMMAND HANDLERS
@@ -307,9 +317,39 @@ validate_provider() {
 
 main() {
     local command="${1:-}"
+
+    # Handle TUI mode - if no command and TUI available, enter TUI mode
+    if [[ -z "$command" ]] && [[ "$TUI_AVAILABLE" == true ]]; then
+        run_tui_main_loop
+        return $?
+    fi
+
     shift || true
 
     case "$command" in
+        "tui"|"--tui")
+            # Explicit TUI mode request
+            if [[ "$TUI_AVAILABLE" == true ]]; then
+                run_tui_main_loop
+            else
+                if ! check_gum_installed; then
+                    show_gum_install_instructions
+                else
+                    log_error "TUI components not found"
+                fi
+                return 1
+            fi
+            ;;
+        "--no-tui")
+            # Disable TUI mode and show help
+            if [[ $# -eq 0 ]]; then
+                log_error "No command specified (TUI mode disabled)"
+                echo "Use 'claudeswap help' for usage information"
+                return 1
+            fi
+            # Process next argument as command
+            main "$@"
+            ;;
         "status")
             handle_status
             ;;
@@ -334,13 +374,19 @@ main() {
             ;;
         "version"|"--version"|"-v")
             echo "claudeswap version $VERSION"
+            if [[ "$TUI_AVAILABLE" == true ]]; then
+                echo "TUI mode: available"
+            else
+                echo "TUI mode: not available (install gum: brew install gum)"
+            fi
             ;;
         "help"|"--help"|"-h")
             echo "Claude Swap - Configuration Manager"
             echo ""
-            echo "Usage: claudeswap <command> [options]"
+            echo "Usage: claudeswap [command] [options]"
             echo ""
             echo "Commands:"
+            echo "  tui            Launch interactive TUI mode (default if no command)"
             echo "  status         Show current configuration status"
             echo "  test-models    Test and display available models"
             echo "  set <provider> Switch to specified provider"
@@ -350,16 +396,29 @@ main() {
             echo "  version        Show version information"
             echo "  help           Show this help message"
             echo ""
+            echo "Options:"
+            echo "  --tui          Explicitly enter TUI mode"
+            echo "  --no-tui       Disable TUI mode"
+            echo ""
             echo "Examples:"
-            echo "  claudeswap status"
+            echo "  claudeswap                # Enter TUI mode (if Gum installed)"
+            echo "  claudeswap tui            # Explicit TUI mode"
+            echo "  claudeswap status         # CLI mode - show status"
             echo "  claudeswap test-models zai"
             echo "  claudeswap set zai glm-4.6"
-            echo "  claudeswap setup"
+            echo "  claudeswap setup          # Interactive credential setup"
+            echo ""
+            if [[ "$TUI_AVAILABLE" == true ]]; then
+                echo "TUI Mode: ✓ Available (Gum installed)"
+            else
+                echo "TUI Mode: ✗ Not available (install: brew install gum)"
+            fi
             echo ""
             ;;
         *)
             if [[ -z "$command" ]]; then
-                log_error "No command specified"
+                log_error "No command specified and TUI mode not available"
+                echo "Install Gum for TUI mode: brew install gum"
             else
                 log_error "Unknown command: $command"
             fi

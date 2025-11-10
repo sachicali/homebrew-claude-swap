@@ -56,39 +56,87 @@ brew tap sachicali/claudeswap
 brew install claudeswap
 ```
 
+## 🎨 TUI Mode (NEW in v1.3.0!)
+
+ClaudeSwap now features an interactive TUI (Text User Interface) powered by [Charmbracelet Gum](https://github.com/charmbracelet/gum)!
+
+### Installing Gum (Required for TUI)
+
+```bash
+# macOS
+brew install gum
+
+# Linux (Debian/Ubuntu)
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+sudo apt update && sudo apt install gum
+
+# Arch Linux
+pacman -S gum
+```
+
+### Using TUI Mode
+
+```bash
+# Launch TUI mode (new default behavior)
+claudeswap
+
+# Or explicitly:
+claudeswap tui
+claudeswap --tui
+```
+
+**TUI Features:**
+- 🔄 **Interactive Provider Selection** - Browse and switch providers with visual status indicators
+- 🔧 **Guided Credential Setup** - Password-masked token input with validation
+- 📊 **Provider Comparison Table** - Side-by-side comparison of all providers
+- 🧪 **Searchable Model Filter** - Type-to-filter through hundreds of models
+- 📈 **Beautiful Status Display** - Styled boxes and colors for better readability
+- ⏳ **Loading Spinners** - Visual feedback for API calls
+- ✓ **Confirmation Prompts** - Prevent accidental changes
+
+**Without TUI (CLI Mode):**
+```bash
+# Force CLI mode if needed
+claudeswap --no-tui status
+```
+
 ## Usage
+
+### CLI Mode Commands
 
 ```bash
 # Switch to Z.ai (50min timeout)
-claudeswap zai
+claudeswap set zai
 
 # Switch to MiniMax (50min timeout, MiniMax-M2 model)
-claudeswap minimax
+claudeswap set minimax
 
 # Switch to Kimi/Moonshot (50min timeout, 256K context)
-claudeswap kimi
+claudeswap set kimi
 
 # Switch to standard Anthropic (2min timeout)
-claudeswap standard
+claudeswap set standard
 
 # Check current status
 claudeswap status
 
-# Restore from latest backup
-claudeswap restore
+# Interactive credential setup
+claudeswap setup
 
 # Test dynamic model mapping system
 claudeswap test-models
 
-# Performance benchmark and optimization
-claudeswap benchmark
-
 # Session management
-claudeswap clear-sessions    # Clear all sessions
-claudeswap backup-sessions   # Backup current sessions
+claudeswap clear     # Clear all sessions
+claudeswap backup    # Backup current sessions
 
 # Show help
 claudeswap help
+
+# Show version
+claudeswap version
 ```
 
 ## What Gets Changed
@@ -158,10 +206,14 @@ claudeswap help
 
 ## Requirements
 
+### Core Requirements
 - macOS or Linux
 - `jq` (installable via Homebrew: `brew install jq`)
 - Zsh shell (default on macOS) or Bash
-- `GNU parallel` (optional, for performance optimization: `brew install parallel`)
+
+### Optional (Enhances Experience)
+- `gum` (for TUI mode: `brew install gum`) - **Highly Recommended**
+- `GNU parallel` (for performance optimization: `brew install parallel`)
 
 ## Performance Benchmarks
 
