@@ -69,6 +69,14 @@ run_tui_main_loop() {
             return 1
         }
 
+        # Handle empty/cancelled selection (user pressed ESC or Ctrl+C)
+        if [[ -z "$choice" ]]; then
+            gum style \
+                --foreground="$GUM_WARNING_COLOR" \
+                "Selection cancelled. Exiting..."
+            return 0
+        fi
+
         case "$choice" in
             "🔄 Switch Provider")
                 # Call provider selection TUI

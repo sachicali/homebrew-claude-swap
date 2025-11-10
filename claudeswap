@@ -149,7 +149,7 @@ handle_test_models() {
 
 handle_set() {
     local provider="$1"
-    local model="$2"
+    local model="${2:-}"
 
     validate_provider "$provider" || return 1
 
