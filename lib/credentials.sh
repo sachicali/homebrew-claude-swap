@@ -11,6 +11,44 @@ set -euo pipefail
 # NASA Rule 2: Maximum iterations for interactive loops
 readonly MAX_INTERACTIVE_ATTEMPTS=50
 
+# Detect shell and config file
+detect_shell_config() {
+    local shell_name
+    shell_name=$(basename "$SHELL")
+
+    case "$shell_name" in
+        zsh)
+            echo "$HOME/.zshrc"
+            ;;
+        bash)
+            if [[ -f "$HOME/.bashrc" ]]; then
+                echo "$HOME/.bashrc"
+            else
+                echo "$HOME/.bash_profile"
+            fi
+            ;;
+        *)
+            # Default to .bashrc
+            echo "$HOME/.bashrc"
+            ;;
+    esac
+}
+
+# Read password/token securely (with masking)
+read_token_secure() {
+    local prompt="$1"
+    local token=""
+
+    # Try to use read -s for password masking
+    if read -s -p "$prompt" token 2>/dev/null; then
+        echo "$token"
+    else
+        # Fallback for systems that don't support -s
+        read -p "$prompt" token
+        echo "$token"
+    fi
+}
+
 # Interactive credential setup for a specific service
 setup_service_credentials() {
     local service="$1"
@@ -31,13 +69,14 @@ setup_service_credentials() {
     echo -e "  4. Create a new API key"
     echo -e "  5. Copy the token"
     echo ""
-    echo -e "${GREEN}Please paste your $service API token below:${NC}"
-    echo -e "(Press ${CYAN}Ctrl+D${NC} when done, or ${CYAN}Enter${NC} then ${CYAN}Ctrl+D${NC} on a new line)"
+    echo -e "${GREEN}Please enter your $service API token:${NC}"
+    echo -e "${BLUE}(Input will be hidden for security)${NC}"
     echo ""
 
-    # Read token interactively
+    # Read token securely with masking
     local token
-    IFS= read -r token
+    token=$(read_token_secure "Token: ")
+    echo "" # New line after hidden input
 
     # Input validation: Check token
     if [[ -z "$token" ]]; then
@@ -76,41 +115,55 @@ setup_service_credentials() {
     echo -e "${GREEN}✓${NC} Received token: ${masked_token}"
     echo ""
 
+    # Auto-detect shell config file
+    local config_file
+    config_file=$(detect_shell_config)
+
     # Ask if user wants to save to shell config
     echo -e "${YELLOW}Would you like to save this to your shell config? (y/n)${NC}"
-    echo -e "This will add it to ${CYAN}$HOME/.zshrc${NC} (recommended)"
+    echo -e "This will add it to ${CYAN}$config_file${NC} (recommended)"
     echo ""
-    printf "Save to ~/.zshrc? (y/n) "
+    printf "Save to $config_file? (y/n) "
     read -r reply
     echo ""
 
     if [[ $reply =~ ^[Yy]$ ]]; then
         # Create backup
-        cp ~/.zshrc ~/.zshrc.backup.$(date +%Y%m%d_%H%M%S) 2>/dev/null || true
+        local backup_file="${config_file}.backup.$(date +%Y%m%d_%H%M%S)"
+        cp "$config_file" "$backup_file" 2>/dev/null || touch "$config_file"
+        [[ -f "$backup_file" ]] && echo -e "${GREEN}✓${NC} Created backup: $backup_file"
 
         # Check for existing entry and update if present
         # Security: Properly escape token to prevent injection
-        if grep -q "^export $var_name=" ~/.zshrc 2>/dev/null; then
-            # Update existing line using sed with backup
-            # Use @ as delimiter to avoid conflicts with URLs in tokens
-            sed -i.bak "/^export $var_name=/c\\export $var_name='$token'" ~/.zshrc
-            echo -e "${GREEN}✓${NC} Updated existing token in ~/.zshrc"
+        if grep -q "^export $var_name=" "$config_file" 2>/dev/null; then
+            # Update existing line using sed
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                # macOS (BSD sed)
+                sed -i '' "/^export $var_name=/c\\
+export $var_name='$token'" "$config_file"
+            else
+                # Linux (GNU sed)
+                sed -i "/^export $var_name=/c\\export $var_name='$token'" "$config_file"
+            fi
+            echo -e "${GREEN}✓${NC} Updated existing token in $config_file"
         else
             # Add new entry
-            echo "" >> ~/.zshrc
-            echo "# $service API Token - Added by claudeswap" >> ~/.zshrc
-            printf "export %s='%s'\n" "$var_name" "$token" >> ~/.zshrc
-            echo -e "${GREEN}✓${NC} Token saved to ~/.zshrc"
+            {
+                echo ""
+                echo "# $service API Token - Added by claudeswap"
+                printf "export %s='%s'\n" "$var_name" "$token"
+            } >> "$config_file"
+            echo -e "${GREEN}✓${NC} Token saved to $config_file"
         fi
         echo ""
-        echo -e "${YELLOW}Important:${NC} Run ${CYAN}source ~/.zshrc${NC} or restart your terminal"
+        echo -e "${YELLOW}Important:${NC} Run ${CYAN}source $config_file${NC} or restart your terminal"
         echo ""
 
         # Set for current session
         export "$var_name"="$token"
     else
         echo -e "${YELLOW}Note:${NC} Token is set for this session only."
-        echo -e "To use it permanently, add this to your ~/.zshrc:"
+        echo -e "To use it permanently, add this to your $config_file:"
         echo -e "${CYAN}export $var_name=\"$token\"${NC}"
         echo ""
         export "$var_name"="$token"
@@ -119,90 +172,149 @@ setup_service_credentials() {
     return 0
 }
 
-# Main interactive setup - choose provider
+# Main interactive setup - configure multiple providers
 setup_credentials_interactive() {
     echo ""
-    echo -e "${YELLOW}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║     Claude Swap Interactive Setup              ║${NC}"
-    echo -e "${YELLOW}╚══════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                                                  ║${NC}"
+    echo -e "${CYAN}║     ${BLUE}ClaudeSwap Credential Setup${NC}                 ${CYAN}║${NC}"
+    echo -e "${CYAN}║                                                  ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo "Choose a provider to configure:"
+    echo -e "${BLUE}This wizard will help you configure API credentials.${NC}"
+    echo -e "${BLUE}All credentials are stored locally in your shell config.${NC}"
+    echo ""
+
+    local config_file
+    config_file=$(detect_shell_config)
+    log_info "Detected config file: ${CYAN}$config_file${NC}"
+    echo ""
+
+    echo "Configure which providers? (You can configure multiple)"
+    echo ""
     echo "  1. Z.ai (GLM models: glm-4.6, glm-4.5)"
     echo "  2. MiniMax (MiniMax-M2, MiniMax-M1)"
-    echo "  3. Kimi/Moonshot (kimi-k2-thinking, moonshot-v1-256k)"
-    echo "  4. Standard Anthropic (claude-sonnet, claude-haiku)"
+    echo "  3. Kimi/Moonshot (kimi-k2-turbo, moonshot-v1-256k)"
+    echo "  4. All providers (configure all at once)"
+    echo "  5. Skip / I'll configure manually"
     echo ""
 
     # NASA Rule 2: Fixed bound on interactive loop
     local attempt=0
     while [[ $attempt -lt $MAX_INTERACTIVE_ATTEMPTS ]]; do
         attempt=$((attempt + 1))
-        printf "Select provider (1-4): "
+        printf "Select option (1-5): "
         read -r choice
 
         case "$choice" in
             1)
                 setup_service_credentials "Z.ai" "CLAUDE_ZAI_AUTH_TOKEN" "https://z.ai/manage-apikey/apikey-list"
-                # Ask for model selection if token was set
-                if [[ -n "${CLAUDE_ZAI_AUTH_TOKEN:-}" ]]; then
-                    echo ""
-                    echo "Would you like to select a specific GLM model?"
-                    printf "Select model now? (y/n) "
-                    read -r select_model
-                    if [[ $select_model =~ ^[Yy]$ ]]; then
-                        local zai_model=$(select_model_interactive "zai")
-                        if [[ -n "$zai_model" ]]; then
-                            log_info "Model selection completed. You can verify with: claudeswap status"
-                        fi
-                    fi
-                fi
-                break
+                echo ""
+                printf "Configure another provider? (y/n): "
+                read -r continue
+                [[ ! $continue =~ ^[Yy]$ ]] && break
                 ;;
             2)
                 setup_service_credentials "MiniMax" "CLAUDE_MINIMAX_AUTH_TOKEN" "https://platform.minimax.io/user-center/basic-information/interface-key"
-                # Ask for model selection if token was set
-                if [[ -n "${CLAUDE_MINIMAX_AUTH_TOKEN:-}" ]]; then
-                    echo ""
-                    echo "Would you like to select a specific MiniMax model?"
-                    printf "Select model now? (y/n) "
-                    read -r select_model
-                    if [[ $select_model =~ ^[Yy]$ ]]; then
-                        local minimax_model=$(select_model_interactive "minimax")
-                        if [[ -n "$minimax_model" ]]; then
-                            log_info "Model selection completed. You can verify with: claudeswap status"
-                        fi
-                    fi
-                fi
-                break
+                echo ""
+                printf "Configure another provider? (y/n): "
+                read -r continue
+                [[ ! $continue =~ ^[Yy]$ ]] && break
                 ;;
             3)
                 setup_service_credentials "Kimi/Moonshot" "CLAUDE_KIMI_AUTH_TOKEN" "https://platform.moonshot.cn/console/api-keys"
-                # Ask for model selection if token was set
-                if [[ -n "${CLAUDE_KIMI_AUTH_TOKEN:-}" ]]; then
+                echo ""
+                # Ask about Kimi for Coding
+                echo -e "${BLUE}Do you have Kimi for Coding membership?${NC}"
+                printf "(y/n): "
+                read -r has_coding
+                if [[ $has_coding =~ ^[Yy]$ ]]; then
+                    # Add Kimi for Coding endpoint to config
+                    if grep -q "^export CLAUDE_KIMI_FOR_CODING_BASE_URL=" "$config_file" 2>/dev/null; then
+                        log_info "Kimi for Coding already configured"
+                    else
+                        {
+                            echo ""
+                            echo "# Kimi for Coding - Official Moonshot Coding Plan"
+                            echo 'export CLAUDE_KIMI_FOR_CODING_BASE_URL="https://api.kimi.com/coding/"'
+                        } >> "$config_file"
+                        echo -e "${GREEN}✓${NC} Kimi for Coding endpoint configured!"
+                    fi
+                fi
+                echo ""
+                printf "Configure another provider? (y/n): "
+                read -r continue
+                [[ ! $continue =~ ^[Yy]$ ]] && break
+                ;;
+            4)
+                # Configure all providers
+                echo ""
+                echo -e "${BLUE}Configuring all providers...${NC}"
+                echo ""
+
+                # Z.ai
+                echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                printf "Do you have Z.ai access? (y/n): "
+                read -r has_zai
+                if [[ $has_zai =~ ^[Yy]$ ]]; then
+                    setup_service_credentials "Z.ai" "CLAUDE_ZAI_AUTH_TOKEN" "https://z.ai/manage-apikey/apikey-list"
+                fi
+
+                # MiniMax
+                echo ""
+                echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                printf "Do you have MiniMax access? (y/n): "
+                read -r has_minimax
+                if [[ $has_minimax =~ ^[Yy]$ ]]; then
+                    setup_service_credentials "MiniMax" "CLAUDE_MINIMAX_AUTH_TOKEN" "https://platform.minimax.io/user-center/basic-information/interface-key"
+                fi
+
+                # Kimi/Moonshot
+                echo ""
+                echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                printf "Do you have Kimi/Moonshot access? (y/n): "
+                read -r has_kimi
+                if [[ $has_kimi =~ ^[Yy]$ ]]; then
+                    setup_service_credentials "Kimi/Moonshot" "CLAUDE_KIMI_AUTH_TOKEN" "https://platform.moonshot.cn/console/api-keys"
+
+                    # Ask about Kimi for Coding
                     echo ""
-                    echo "Would you like to select a specific Kimi model?"
-                    printf "Select model now? (y/n) "
-                    read -r select_model
-                    if [[ $select_model =~ ^[Yy]$ ]]; then
-                        local kimi_model=$(select_model_interactive "kimi")
-                        if [[ -n "$kimi_model" ]]; then
-                            log_info "Model selection completed. You can verify with: claudeswap status"
+                    printf "Do you have Kimi for Coding membership? (y/n): "
+                    read -r has_coding
+                    if [[ $has_coding =~ ^[Yy]$ ]]; then
+                        if ! grep -q "^export CLAUDE_KIMI_FOR_CODING_BASE_URL=" "$config_file" 2>/dev/null; then
+                            {
+                                echo ""
+                                echo "# Kimi for Coding - Official Moonshot Coding Plan"
+                                echo 'export CLAUDE_KIMI_FOR_CODING_BASE_URL="https://api.kimi.com/coding/"'
+                            } >> "$config_file"
+                            echo -e "${GREEN}✓${NC} Kimi for Coding endpoint configured!"
                         fi
                     fi
                 fi
                 break
                 ;;
-            4)
-                log_info "Standard Anthropic API doesn't require setup"
+            5)
+                log_info "Skipping automated setup"
                 echo ""
-                echo "Simply ensure you have an Anthropic API key in:"
-                echo "  - Environment variable: ANTHROPIC_API_KEY"
-                echo "  - Claude Desktop settings"
+                echo "To configure manually, add these to your $config_file:"
                 echo ""
-                break
+                echo -e "${CYAN}# Z.ai${NC}"
+                echo 'export CLAUDE_ZAI_AUTH_TOKEN="your-token"'
+                echo 'export CLAUDE_ZAI_BASE_URL="https://api.z.ai/api/anthropic"'
+                echo ""
+                echo -e "${CYAN}# MiniMax${NC}"
+                echo 'export CLAUDE_MINIMAX_AUTH_TOKEN="your-token"'
+                echo 'export CLAUDE_MINIMAX_BASE_URL="https://api.minimax.io/anthropic"'
+                echo ""
+                echo -e "${CYAN}# Kimi/Moonshot${NC}"
+                echo 'export CLAUDE_KIMI_AUTH_TOKEN="your-token"'
+                echo 'export CLAUDE_KIMI_BASE_URL="https://api.moonshot.cn/v1"'
+                echo ""
+                return 0
                 ;;
             *)
-                echo "Invalid choice. Please enter 1, 2, 3, or 4"
+                echo "Invalid choice. Please enter 1, 2, 3, 4, or 5"
                 ;;
         esac
     done
@@ -214,12 +326,17 @@ setup_credentials_interactive() {
     fi
 
     echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${GREEN}✓ Setup complete!${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo "You can now use:"
-    echo "  claudeswap status          - Check current configuration"
-    echo "  claudeswap test-models     - View available models"
-    echo "  claudeswap set <provider>  - Switch providers"
+    log_info "To apply changes, run: ${CYAN}source $config_file${NC}"
+    log_info "Or restart your terminal"
+    echo ""
+    echo "Next steps:"
+    echo "  ${YELLOW}claudeswap status${NC}          - Check current configuration"
+    echo "  ${YELLOW}claudeswap set <provider>${NC}  - Switch providers"
+    echo "  ${YELLOW}claudeswap <provider> <cmd>${NC} - Execute with provider (CCS-style)"
     echo ""
 }
 

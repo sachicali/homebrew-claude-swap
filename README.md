@@ -28,14 +28,14 @@ Run the **automated setup wizard**:
 
 ```bash
 # After installation, run:
-claudeswap-setup
+claudeswap setup
 ```
 
 The setup wizard will:
 - ✓ Interactively prompt for your API tokens (password-masked)
 - ✓ Automatically detect your shell (zsh/bash)
 - ✓ Add credentials to the correct config file (~/.zshrc or ~/.bashrc)
-- ✓ Support optional providers (skip if you don't have access)
+- ✓ Support multiple providers in one session
 - ✓ Create automatic backups before changes
 
 ### Manual Setup (Alternative)
