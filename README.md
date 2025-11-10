@@ -21,7 +21,11 @@ export CLAUDE_MINIMAX_BASE_URL="https://api.minimax.io/anthropic"
 
 # Kimi/Moonshot Configuration (optional - only if you have access)
 export CLAUDE_KIMI_AUTH_TOKEN="your-kimi-token-here"
-export CLAUDE_KIMI_BASE_URL="https://api.moonshot.cn/v1"
+export CLAUDE_KIMI_BASE_URL="https://api.moonshot.cn/v1"  # For regular kimi profile
+
+# Kimi for Coding - Official Moonshot Coding Plan (optional)
+# Uses same auth token but dedicated coding endpoint
+# export CLAUDE_KIMI_FOR_CODING_BASE_URL="https://api.kimi.com/coding/"  # Already default
 
 # Standard timeout (default is 2 minutes)
 export CLAUDE_STANDARD_TIMEOUT="120000"
@@ -248,23 +252,26 @@ claudeswap version
 
 **Regular Kimi (`kimi`):**
 - Base URL: `https://api.moonshot.cn/v1`
+- Model: **kimi-k2-turbo-preview** ⚡ (4x faster than standard K2!)
+- Speed: 40 tokens/sec (vs 10 tok/s for regular K2)
+- Released: August 2025
 - Timeout: 3000000ms (50 minutes)
-- Models: moonshot-v1-256k, moonshot-v1-128k, moonshot-v1-32k
 - Temperature: 0.6x multiplier
 - Uses your `CLAUDE_KIMI_AUTH_TOKEN`
 - Context: Up to 256K tokens
-- Best for: General queries, explanations, documentation
+- Cost: $0.30/$1.20/$5.00 per million tokens (cache hit/miss/output)
+- Best for: General queries, fast responses, explanations, documentation
 
-**Kimi for Coding (`kimi-for-coding`):**
-- Base URL: `https://api.moonshot.cn/v1` (same as regular)
-- Model: **kimi-k2-0711-preview** (Latest K2 model)
-- Performance: 65.8% on SWE-bench Verified (beats GPT-4.1's 54.6%)
-- Cost: $0.14/$2.49 per million tokens (very cost-effective!)
-- 1T parameters (32B activated, MoE architecture)
-- Optimized for: Agentic coding, tool calling, code synthesis
-- Best for: Complex coding tasks, refactoring, algorithm implementation
-- Can execute 200-300 sequential tool calls
-- Uses your `CLAUDE_KIMI_AUTH_TOKEN` (same credentials)
+**Kimi for Coding (`kimi-for-coding`) - 🎯 OFFICIAL Moonshot Coding Plan:**
+- Base URL: `https://api.kimi.com/coding/` (Dedicated coding endpoint!)
+- Model: **kimi-for-coding** (Official membership-based coding plan)
+- **This is an OFFICIAL Moonshot product** - not just a model variant
+- Requires: Moonshot membership subscription
+- Optimized for: Professional coding tasks, complex algorithms, refactoring
+- Features: Code-specific training, enhanced tool calling, agentic workflows
+- Best for: Production code, complex implementations, enterprise development
+- Uses your `CLAUDE_KIMI_AUTH_TOKEN` (same token, different endpoint)
+- Compatible with: Claude Code, Cline, RooCode (via ANTHROPIC_BASE_URL)
 
 ### Standard Configuration
 - Base URL: (removed/blank)

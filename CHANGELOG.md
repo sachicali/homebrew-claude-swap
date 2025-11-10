@@ -8,24 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Kimi for Coding Profile** - New `kimi-for-coding` provider variant with K2 model
-  - Uses latest **kimi-k2-0711-preview** model (1T params, 32B activated)
-  - Performance: 65.8% SWE-bench Verified (beats GPT-4.1's 54.6%)
-  - Cost-effective: $0.14/$2.49 per million input/output tokens
-  - Optimized for: Agentic coding, tool calling, code synthesis
-  - Can execute 200-300 sequential tool calls without intervention
+- **Official Kimi for Coding Support** - ⭐ **OFFICIAL Moonshot Product**
+  - **This is the OFFICIAL "Kimi for Coding" membership plan from Moonshot AI**
+  - Dedicated API endpoint: `https://api.kimi.com/coding/`
+  - Model name: `kimi-for-coding` (official identifier)
+  - Requires: Moonshot membership subscription
+  - Optimized for: Professional coding, enterprise development
+  - Compatible with: Claude Code, Cline, RooCode (Anthropic-compatible API)
   - Separate instance directory from regular `kimi`
-  - Run concurrent sessions: general Kimi (moonshot-v1) + coding Kimi (K2) simultaneously
-  - Usage: `claudeswap kimi-for-coding "implement auth system"`
-  - Available in TUI as "Kimi for Coding (Optimized)"
-  - Uses same credentials (`CLAUDE_KIMI_AUTH_TOKEN`)
+  - Usage: `claudeswap kimi-for-coding "implement production system"`
+  - Uses same token (`CLAUDE_KIMI_AUTH_TOKEN`) but different endpoint
 
 ### Changed
-- **Model Mapping** - Updated for Kimi K2 support
-  - `kimi` provider uses moonshot-v1 models (backward compatible)
-  - `kimi-for-coding` provider uses kimi-k2-0711-preview model
-  - Added K2 model family detection in `lib/models.sh`
-  - Set K2 tier to "very-high" (beats GPT-4.1 on coding benchmarks)
+- **Regular Kimi Updated to K2 Turbo** - ⚡ 4x faster performance!
+  - Model: `kimi-k2-turbo-preview` (released Aug 2025)
+  - Speed: 40 tokens/sec (vs 10 tok/s for standard K2)
+  - Cost: $0.30/$1.20/$5.00 per million tokens (cache hit/miss/output)
+  - Same 256K context window
+  - Best for: General queries, fast responses
+
+- **Kimi Configuration Split** - Two distinct profiles now supported
+  - `kimi` → kimi-k2-turbo-preview at api.moonshot.cn/v1
+  - `kimi-for-coding` → Official coding plan at api.kimi.com/coding/
+
+- **lib/constants.sh** - Added kimi-for-coding specific constants
+  - `KIMI_FOR_CODING_BASE_URL_DEFAULT` = "https://api.kimi.com/coding/"
+  - `KIMI_FOR_CODING_MODEL` = "kimi-for-coding"
+  - `KIMI_FOR_CODING_TIMEOUT_DEFAULT`
+
+- **lib/models.sh** - Updated model mapping
+  - Regular kimi uses kimi-k2-turbo-preview (4x faster)
+  - kimi-for-coding always returns "kimi-for-coding" (official model name)
+  - Simplified kimi-for-coding mapping (no family detection needed)
 
 ## [1.5.0] - 2025-11-10
 

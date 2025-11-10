@@ -96,26 +96,21 @@ map_model_to_provider() {
             esac
             ;;
         "kimi"|"moonshot")
-            # Kimi/Moonshot API - using moonshot-v1 models
+            # Kimi/Moonshot API - using latest K2 Turbo (4x faster, Aug 2025)
             case "$model_family" in
-                "sonnet") echo "moonshot-v1-256k" ;;
-                "haiku") echo "moonshot-v1-32k" ;;
-                "glm") echo "moonshot-v1-128k" ;;
-                "minimax") echo "moonshot-v1-256k" ;;
+                "sonnet"|"opus") echo "kimi-k2-turbo-preview" ;;
+                "haiku") echo "kimi-k2-turbo-preview" ;;
+                "glm") echo "kimi-k2-turbo-preview" ;;
+                "minimax") echo "kimi-k2-turbo-preview" ;;
                 "kimi") echo "$model_name" ;;
-                *) echo "moonshot-v1-256k" ;;
+                *) echo "kimi-k2-turbo-preview" ;;  # Default to K2 Turbo (40 tok/s)
             esac
             ;;
         "kimi-for-coding")
-            # Kimi K2 - Latest coding-optimized models (2025)
-            # K2 achieves 65.8% on SWE-bench Verified
-            case "$model_family" in
-                "sonnet"|"opus") echo "kimi-k2-0711-preview" ;;
-                "haiku") echo "kimi-k2-0711-preview" ;;  # K2 is high-performance
-                "glm"|"minimax") echo "kimi-k2-0711-preview" ;;
-                "kimi") echo "$model_name" ;;
-                *) echo "kimi-k2-0711-preview" ;;  # Default to K2 for coding
-            esac
+            # Official Moonshot Kimi for Coding Plan (Membership-based)
+            # Dedicated endpoint: https://api.kimi.com/coding/
+            # Model name is always "kimi-for-coding" regardless of family
+            echo "kimi-for-coding" ;;
             ;;
         *)
             # Unknown provider - use safe defaults
