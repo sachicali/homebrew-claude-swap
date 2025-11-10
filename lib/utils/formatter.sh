@@ -17,10 +17,10 @@ format_context_length() {
 
     # Format context length in human-readable form (portable alternative to numfmt)
     local context_num="$context_length"
-    if [[ "$context_length" -gt 1000000 ]]; then
-        context_num="$(($context_length / 1000000))M"
-    elif [[ "$context_length" -gt 1000 ]]; then
-        context_num="$(($context_length / 1000))K"
+    if [[ "$context_length" -gt $CONTEXT_MB_DIVISOR ]]; then
+        context_num="$(($context_length / $CONTEXT_MB_DIVISOR))M"
+    elif [[ "$context_length" -gt $CONTEXT_KB_DIVISOR ]]; then
+        context_num="$(($context_length / $CONTEXT_KB_DIVISOR))K"
     fi
 
     echo "Context: $context_num"

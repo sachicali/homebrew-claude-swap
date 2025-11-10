@@ -77,7 +77,7 @@ setup_provider_credentials_tui() {
         --password \
         --placeholder "Enter API token" \
         --prompt "API Token: " \
-        --width 60)
+        --width "$TUI_INPUT_WIDTH")
 
     # Validate token
     if [[ -z "$token" ]]; then

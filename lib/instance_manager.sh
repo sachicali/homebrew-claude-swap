@@ -42,11 +42,12 @@ init_instance() {
     instance_dir=$(get_instance_dir "$provider") || return 1
 
     # Create instance directory structure
-    mkdir -p "$instance_dir"
-    mkdir -p "$instance_dir/todos"
-    mkdir -p "$instance_dir/projects"
-    mkdir -p "$instance_dir/backups"
-    mkdir -p "$instance_dir/session_backups"
+    # NASA Rule 7: Check all return values
+    if ! mkdir -p "$instance_dir" "$instance_dir/todos" "$instance_dir/projects" \
+                   "$instance_dir/backups" "$instance_dir/session_backups"; then
+        log_error "Failed to create instance directories for $provider"
+        return 1
+    fi
 
     # Create settings.json if it doesn't exist
     if [[ ! -f "$instance_dir/settings.json" ]]; then
@@ -180,12 +181,17 @@ cleanup_instances() {
             local mod_time
             mod_time=$(stat -f %m "$dir" 2>/dev/null || stat -c %Y "$dir" 2>/dev/null || echo 0)
             local current_time=$(date +%s)
-            local age_days=$(( (current_time - mod_time) / 86400 ))
+            local age_days=$(( (current_time - mod_time) / SECONDS_PER_DAY ))
 
             if [[ $age_days -gt $retention_days ]]; then
                 local provider=$(basename "$dir")
                 log_warning "Removing old instance: $provider (${age_days} days old)"
-                rm -rf "$dir"
+                # NASA Rule 7: Check return value for destructive operations
+                if ! rm -rf "$dir"; then
+                    log_error "Failed to remove instance directory: $dir"
+                    # Continue to next item instead of failing completely
+                    continue
+                fi
             fi
         fi
 

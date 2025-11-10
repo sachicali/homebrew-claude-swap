@@ -112,3 +112,11 @@ readonly MAX_UNIQUE_MODELS=200
 readonly MAX_FETCH_MODELS=500
 readonly MAX_FETCH_LINES=500
 readonly MAX_PROVIDER_PARSE_LINES=100
+
+# Formatting and Display Constants
+readonly TUI_INPUT_WIDTH=60
+readonly CONTEXT_MB_DIVISOR=1000000
+readonly CONTEXT_KB_DIVISOR=1000
+
+# Time Constants
+readonly SECONDS_PER_DAY=86400
