@@ -3,6 +3,10 @@
 # Model fetching utilities
 # Single Responsibility: Fetch available models from different providers
 
+# Source guard
+[[ -n "${_MODEL_FETCH_LOADED:-}" ]] && return 0
+readonly _MODEL_FETCH_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 

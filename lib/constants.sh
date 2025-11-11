@@ -3,6 +3,10 @@
 # Constants and configuration
 # Single Responsibility: Define all constants and paths
 
+# Source guard
+[[ -n "${_CONSTANTS_LOADED:-}" ]] && return 0
+readonly _CONSTANTS_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 

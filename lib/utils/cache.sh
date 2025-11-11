@@ -3,6 +3,10 @@
 # Model cache utilities (file-based for zsh compatibility)
 # Single Responsibility: Handle model extraction caching
 
+# Source guard
+[[ -n "${_CACHE_LOADED:-}" ]] && return 0
+readonly _CACHE_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 

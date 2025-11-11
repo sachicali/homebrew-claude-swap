@@ -57,11 +57,17 @@ done
 
 # Source TUI components (optional - graceful degradation)
 TUI_AVAILABLE=false
-if [[ -f "$LIB_DIR/tui/gum_utils.sh" ]] && [[ -f "$LIB_DIR/tui/main_menu.sh" ]]; then
-    source "$LIB_DIR/tui/gum_utils.sh"
+if [[ -f "$LIB_DIR/tui/tui_common.sh" ]] && [[ -f "$LIB_DIR/tui/main_menu.sh" ]]; then
+    # Source the common TUI library which loads all dependencies
+    source "$LIB_DIR/tui/tui_common.sh"
     if check_gum_installed; then
         TUI_AVAILABLE=true
-        source "$LIB_DIR/tui/main_menu.sh"
+        # Source all TUI component files
+        for tui_component in "main_menu.sh" "credential_input.sh" "comparison_table.sh" "provider_select.sh" "model_filter.sh"; do
+            if [[ -f "$LIB_DIR/tui/$tui_component" ]]; then
+                source "$LIB_DIR/tui/$tui_component"
+            fi
+        done
     fi
 fi
 
@@ -168,7 +174,7 @@ handle_set() {
         "minimax")
             setup_minimax_credentials
             ;;
-        "kimi")
+        "kimi"|"kimi-for-coding")
             setup_kimi_credentials
             ;;
     esac
@@ -187,27 +193,38 @@ handle_set() {
     local auth_token=""
     local timeout_ms=""
     local base_url=""
+    local model_name=""
 
     case "$provider" in
         "standard")
             auth_token="${ANTHROPIC_API_KEY:-}"
             timeout_ms="${STANDARD_TIMEOUT:-120000}"
             base_url=""  # Standard Anthropic uses default API endpoint (no BASE_URL key)
+            model_name=""  # Let Claude CLI use defaults
             ;;
         "zai")
             auth_token="${ZAI_API_KEY:-}"
             timeout_ms="${ZAI_TIMEOUT:-3000000}"
             base_url="${ZAI_BASE_URL:-$ZAI_BASE_URL_DEFAULT}"
+            model_name=""  # Proxy handles model mapping
             ;;
         "minimax")
             auth_token="${MINIMAX_API_KEY:-}"
             timeout_ms="${MINIMAX_TIMEOUT:-3000000}"
             base_url="${MINIMAX_BASE_URL:-$MINIMAX_BASE_URL_DEFAULT}"
+            model_name=""  # Proxy handles model mapping
             ;;
         "kimi")
             auth_token="${KIMI_API_KEY:-}"
             timeout_ms="${KIMI_TIMEOUT:-3000000}"
             base_url="${KIMI_BASE_URL:-$KIMI_BASE_URL_DEFAULT}"
+            model_name=""  # Proxy handles model mapping
+            ;;
+        "kimi-for-coding")
+            auth_token="${KIMI_API_KEY:-}"  # Uses same API key as regular Kimi
+            timeout_ms="${KIMI_FOR_CODING_TIMEOUT:-3000000}"
+            base_url="${KIMI_FOR_CODING_BASE_URL:-$KIMI_FOR_CODING_BASE_URL_DEFAULT}"  # https://api.kimi.com/coding/
+            model_name="kimi-for-coding"  # Required for kimi-for-coding endpoint
             ;;
     esac
 
@@ -233,14 +250,23 @@ handle_set() {
     local jq_result=0
     if [[ -n "$base_url" ]]; then
         # Proxy providers (Z.ai, MiniMax, Kimi): Set ANTHROPIC_BASE_URL
-        jq --arg token "$auth_token" --arg timeout "$timeout_ms" --arg url "$base_url" \
-            '.env.ANTHROPIC_AUTH_TOKEN = $token | .env.API_TIMEOUT_MS = $timeout | .env.ANTHROPIC_BASE_URL = $url' \
-            "$SETTINGS_FILE" > "$temp_file"
-        jq_result=$?
+        if [[ -n "$model_name" ]]; then
+            # kimi-for-coding: Set BASE_URL and MODEL
+            jq --arg token "$auth_token" --arg timeout "$timeout_ms" --arg url "$base_url" --arg model "$model_name" \
+                '.env.ANTHROPIC_AUTH_TOKEN = $token | .env.API_TIMEOUT_MS = $timeout | .env.ANTHROPIC_BASE_URL = $url | .env.ANTHROPIC_MODEL = $model' \
+                "$SETTINGS_FILE" > "$temp_file"
+            jq_result=$?
+        else
+            # Other proxies: Just set BASE_URL
+            jq --arg token "$auth_token" --arg timeout "$timeout_ms" --arg url "$base_url" \
+                '.env.ANTHROPIC_AUTH_TOKEN = $token | .env.API_TIMEOUT_MS = $timeout | .env.ANTHROPIC_BASE_URL = $url | del(.env.ANTHROPIC_MODEL)' \
+                "$SETTINGS_FILE" > "$temp_file"
+            jq_result=$?
+        fi
     else
-        # Standard Anthropic: Remove ANTHROPIC_BASE_URL if it exists
+        # Standard Anthropic: Remove ANTHROPIC_BASE_URL and ANTHROPIC_MODEL
         jq --arg token "$auth_token" --arg timeout "$timeout_ms" \
-            '.env.ANTHROPIC_AUTH_TOKEN = $token | .env.API_TIMEOUT_MS = $timeout | del(.env.ANTHROPIC_BASE_URL)' \
+            '.env.ANTHROPIC_AUTH_TOKEN = $token | .env.API_TIMEOUT_MS = $timeout | del(.env.ANTHROPIC_BASE_URL) | del(.env.ANTHROPIC_MODEL)' \
             "$SETTINGS_FILE" > "$temp_file"
         jq_result=$?
     fi
@@ -300,12 +326,12 @@ validate_provider() {
     local provider="$1"
 
     case "$provider" in
-        standard|zai|minimax|kimi|moonshot)
+        standard|zai|minimax|kimi|kimi-for-coding|moonshot)
             return 0
             ;;
         *)
             log_error "Invalid provider: $provider"
-            log_info "Valid providers: standard, zai, minimax, kimi"
+            log_info "Valid providers: standard, zai, minimax, kimi, kimi-for-coding"
             return 1
             ;;
     esac

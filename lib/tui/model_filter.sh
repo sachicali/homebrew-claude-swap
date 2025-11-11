@@ -3,16 +3,20 @@
 # TUI Model Filter Handler
 # Single Responsibility: Interactive model browsing and filtering
 
+# Source guard
+[[ -n "${_MODEL_FILTER_LOADED:-}" ]] && return 0
+readonly _MODEL_FILTER_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 
 # NASA Rule 7: Check file existence before sourcing
-if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh" ]]; then
-    echo "ERROR: Required gum_utils.sh not found" >&2
+if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/tui_common.sh" ]]; then
+    echo "ERROR: Required tui_common.sh not found" >&2
     exit 1
 fi
 
-source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh"
+source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/tui_common.sh"
 
 # Show model filter with searchable list
 show_model_filter_tui() {

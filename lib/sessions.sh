@@ -3,6 +3,10 @@
 # Session management utilities
 # Single Responsibility: Handle session backup, restore, and compatibility
 
+# Source guard
+[[ -n "${_SESSIONS_LOADED:-}" ]] && return 0
+readonly _SESSIONS_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 

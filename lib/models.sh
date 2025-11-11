@@ -3,6 +3,10 @@
 # Model detection and mapping utilities
 # Single Responsibility: Handle model family detection and provider mapping
 
+# Source guard
+[[ -n "${_MODELS_LOADED:-}" ]] && return 0
+readonly _MODELS_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 

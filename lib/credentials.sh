@@ -3,6 +3,10 @@
 # Credential validation and setup
 # Single Responsibility: Handle all credential-related operations
 
+# Source guard
+[[ -n "${_CREDENTIALS_LOADED:-}" ]] && return 0
+readonly _CREDENTIALS_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 

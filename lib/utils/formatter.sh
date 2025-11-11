@@ -3,6 +3,10 @@
 # Formatter utilities
 # Single Responsibility: Format data for display
 
+# Source guard
+[[ -n "${_FORMATTER_LOADED:-}" ]] && return 0
+readonly _FORMATTER_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 
