@@ -29,18 +29,28 @@ _source_if_exists() {
 }
 
 # Core libraries (required)
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/constants.sh"
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/logging.sh"
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/utils/cache.sh"
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/utils/formatter.sh"
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/models.sh"
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/sessions.sh"
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/providers/model_fetch.sh"
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/credentials.sh"
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/instance_manager.sh"
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/constants.sh" || exit 1
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/logging.sh" || exit 1
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/utils/cache.sh" || exit 1
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/utils/formatter.sh" || exit 1
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/models.sh" || exit 1
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/sessions.sh" || exit 1
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/providers/model_fetch.sh" || exit 1
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/credentials.sh" || exit 1
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/instance_manager.sh" || exit 1
 
 # TUI-specific library
-_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh"
+_source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh" || exit 1
+
+# Check for required commands
+check_jq_available() {
+    if ! command -v jq &>/dev/null; then
+        log_error "jq is required but not installed. Please install jq to use this feature."
+        log_error "Installation: brew install jq (macOS) or apt-get install jq (Linux)"
+        return 1
+    fi
+    return 0
+}
 
 # Wrapper and helper functions for TUI components
 # These allow TUI components to access functionality from the main script and libraries
@@ -50,6 +60,12 @@ get_current_provider() {
     if [[ ! -f "$SETTINGS_FILE" ]]; then
         echo "unknown"
         return 0
+    fi
+
+    # Check jq availability before using it
+    if ! check_jq_available; then
+        echo "unknown"
+        return 1
     fi
 
     local provider
