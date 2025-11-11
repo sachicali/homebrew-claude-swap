@@ -65,7 +65,7 @@ get_current_provider() {
     # Check jq availability before using it
     if ! check_jq_available; then
         echo "unknown"
-        return 1
+        return 0  # Return success to allow graceful degradation
     fi
 
     local provider
