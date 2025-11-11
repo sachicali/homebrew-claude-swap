@@ -181,28 +181,28 @@ setup_service_credentials() {
         fi
 
         # Check for existing entry and update if present
-        # Security: Properly escape token to prevent injection
-        if grep -q "^export $var_name=" "$config_file" 2>/dev/null; then
-            # Update existing line using sed with comprehensive platform detection
-            local sed_result=0
-            if [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "freebsd"* ]]; then
-                # BSD sed (macOS, FreeBSD)
-                sed -i '' "/^export $var_name=/c\\
-export $var_name='$token'" "$config_file"
-                sed_result=$?
-            elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ -n "${WSL_DISTRO_NAME:-}" ]]; then
-                # WSL / Git Bash / Cygwin - usually GNU sed
-                sed -i "/^export $var_name=/c\\export $var_name='$token'" "$config_file"
-                sed_result=$?
-            else
-                # Linux and other systems - GNU sed
-                sed -i "/^export $var_name=/c\\export $var_name='$token'" "$config_file"
-                sed_result=$?
-            fi
+        # Security: Use safer method to avoid shell injection
+        # Use fixed-string grep and avoid sed with unescaped variables
+        if grep -qF "export $var_name=" "$config_file" 2>/dev/null; then
+            # Create temp file with updated content (safer than sed with special chars)
+            local temp_file="${config_file}.tmp.$$"
+            local updated=0
 
-            if [[ $sed_result -eq 0 ]]; then
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                # Check if this is the line to replace (using bash string matching, not regex)
+                if [[ "$line" == "export $var_name="* ]]; then
+                    printf "export %s='%s'\n" "$var_name" "$token"
+                    updated=1
+                else
+                    printf "%s\n" "$line"
+                fi
+            done < "$config_file" > "$temp_file"
+
+            # Replace original file with updated version
+            if [[ $updated -eq 1 ]] && mv "$temp_file" "$config_file"; then
                 echo -e "${GREEN}✓${NC} Updated existing token in $config_file"
             else
+                rm -f "$temp_file"
                 log_error "Failed to update token in $config_file"
                 return 1
             fi
@@ -290,7 +290,7 @@ setup_credentials_interactive() {
                 read -r has_coding
                 if [[ $has_coding =~ ^[Yy]$ ]]; then
                     # Add Kimi for Coding endpoint to config
-                    if grep -q "^export CLAUDE_KIMI_FOR_CODING_BASE_URL=" "$config_file" 2>/dev/null; then
+                    if grep -qF "export CLAUDE_KIMI_FOR_CODING_BASE_URL=" "$config_file" 2>/dev/null; then
                         log_info "Kimi for Coding already configured"
                     else
                         {
@@ -342,7 +342,7 @@ setup_credentials_interactive() {
                     printf "Do you have Kimi for Coding membership? (y/n): "
                     read -r has_coding
                     if [[ $has_coding =~ ^[Yy]$ ]]; then
-                        if ! grep -q "^export CLAUDE_KIMI_FOR_CODING_BASE_URL=" "$config_file" 2>/dev/null; then
+                        if ! grep -qF "export CLAUDE_KIMI_FOR_CODING_BASE_URL=" "$config_file" 2>/dev/null; then
                             {
                                 echo ""
                                 echo "# Kimi for Coding - Official Moonshot Coding Plan"
@@ -481,6 +481,8 @@ setup_zai_credentials() {
     fi
 
     # Set environment for Z.ai
+    # Export both AUTH_TOKEN and API_KEY for compatibility
+    export ZAI_AUTH_TOKEN
     export ZAI_API_KEY="$ZAI_AUTH_TOKEN"
     export ZAI_BASE_URL="${ZAI_BASE_URL:-$ZAI_BASE_URL_DEFAULT}"
     export ZAI_TIMEOUT="${ZAI_TIMEOUT:-$ZAI_TIMEOUT_DEFAULT}"
@@ -502,6 +504,8 @@ setup_minimax_credentials() {
     fi
 
     # Set environment for MiniMax
+    # Export both AUTH_TOKEN and API_KEY for compatibility
+    export MINIMAX_AUTH_TOKEN
     export MINIMAX_API_KEY="$MINIMAX_AUTH_TOKEN"
     export MINIMAX_BASE_URL="${MINIMAX_BASE_URL:-$MINIMAX_BASE_URL_DEFAULT}"
     export MINIMAX_TIMEOUT="${MINIMAX_TIMEOUT:-$MINIMAX_TIMEOUT_DEFAULT}"
@@ -523,6 +527,8 @@ setup_kimi_credentials() {
     fi
 
     # Set environment for Kimi/Moonshot
+    # Export both AUTH_TOKEN and API_KEY for compatibility
+    export KIMI_AUTH_TOKEN
     export KIMI_API_KEY="$KIMI_AUTH_TOKEN"
     export KIMI_BASE_URL="${KIMI_BASE_URL:-$KIMI_BASE_URL_DEFAULT}"
     export KIMI_TIMEOUT="${KIMI_TIMEOUT:-$KIMI_TIMEOUT_DEFAULT}"

@@ -53,6 +53,8 @@ backup_sessions() {
         echo "$backup_path"
         return 0
     else
+        # Return success when there's nothing to backup (not an error condition)
+        # Callers can check if output is empty to determine if backup was created
         log_info "No sessions to backup"
         echo ""
         return 0
@@ -63,26 +65,31 @@ backup_sessions() {
 # NASA Rule 7: Check return values
 # NASA Rule 2: Fixed loop bound
 clear_sessions() {
-    if [[ -d "$CLAUDE_SESSION_DIR" ]]; then
-        local session_count=$(ls -1 "$CLAUDE_SESSION_DIR"/*.json 2>/dev/null | wc -l | tr -d ' ')
-        if [[ "$session_count" -gt 0 ]]; then
-            # NASA Rule 2: Verify session count is within reasonable bounds
-            if [[ "$session_count" -gt "$MAX_SESSIONS_CLEANUP" ]]; then
-                log_error "Session count exceeds safety limit ($MAX_SESSIONS_CLEANUP)"
-                return 1
-            fi
-            if ! rm -f "$CLAUDE_SESSION_DIR"/*.json; then
-                log_error "Failed to clear session files"
-                return 1
-            fi
-            log_success "Cleared $session_count session files"
-            return 0
-        else
-            log_info "No sessions to clear"
-            return 0
-        fi
+    if [[ ! -d "$CLAUDE_SESSION_DIR" ]]; then
+        log_info "Session directory does not exist"
+        return 0
     fi
-    return 0
+
+    # Use find instead of ls for more robust file counting
+    local session_count=0
+    session_count=$(find "$CLAUDE_SESSION_DIR" -maxdepth 1 -name "*.json" -type f 2>/dev/null | wc -l)
+
+    if [[ "$session_count" -gt 0 ]]; then
+        # NASA Rule 2: Verify session count is within reasonable bounds
+        if [[ "$session_count" -gt "$MAX_SESSIONS_CLEANUP" ]]; then
+            log_error "Session count exceeds safety limit ($MAX_SESSIONS_CLEANUP)"
+            return 1
+        fi
+        if ! rm -f "$CLAUDE_SESSION_DIR"/*.json; then
+            log_error "Failed to clear session files"
+            return 1
+        fi
+        log_success "Cleared $session_count session files"
+        return 0
+    else
+        log_info "No sessions to clear"
+        return 0
+    fi
 }
 
 # Check if session is compatible between providers

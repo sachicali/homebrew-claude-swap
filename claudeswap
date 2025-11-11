@@ -55,6 +55,16 @@ for lib_file in "constants.sh" "logging.sh" "utils/cache.sh" "utils/formatter.sh
     source "$LIB_DIR/$lib_file"
 done
 
+# Check for required jq command (needed for JSON processing)
+if ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq is required but not installed" >&2
+    echo "Please install jq to use claudeswap:" >&2
+    echo "  macOS: brew install jq" >&2
+    echo "  Ubuntu/Debian: sudo apt-get install jq" >&2
+    echo "  Other: See https://stedolan.github.io/jq/download/" >&2
+    exit 1
+fi
+
 # Source TUI components (optional - graceful degradation)
 TUI_AVAILABLE=false
 if [[ -f "$LIB_DIR/tui/tui_common.sh" ]] && [[ -f "$LIB_DIR/tui/main_menu.sh" ]]; then
@@ -80,15 +90,23 @@ handle_status() {
     local current_model=""
 
     # Detect current provider
+    current_provider="unknown"
     if [[ -f "$SETTINGS_FILE" ]]; then
-        current_provider=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_FILE" 2>/dev/null | grep -q "sk-ant" && echo "standard" || echo "unknown")
-        if [[ "$current_provider" == "unknown" ]] && [[ -n "${ZAI_API_KEY:-}" ]]; then
+        # Check if Anthropic standard API is configured
+        local auth_token
+        auth_token=$(jq -r '.env.ANTHROPIC_AUTH_TOKEN // empty' "$SETTINGS_FILE" 2>/dev/null)
+        if [[ "$auth_token" == sk-ant* ]]; then
+            current_provider="standard"
+        fi
+    fi
+
+    # Check for alternative providers (check both variable names for compatibility)
+    if [[ "$current_provider" == "unknown" ]]; then
+        if [[ -n "${ZAI_AUTH_TOKEN:-}" ]] || [[ -n "${ZAI_API_KEY:-}" ]]; then
             current_provider="zai"
-        fi
-        if [[ "$current_provider" == "unknown" ]] && [[ -n "${MINIMAX_API_KEY:-}" ]]; then
+        elif [[ -n "${MINIMAX_AUTH_TOKEN:-}" ]] || [[ -n "${MINIMAX_API_KEY:-}" ]]; then
             current_provider="minimax"
-        fi
-        if [[ "$current_provider" == "unknown" ]] && [[ -n "${KIMI_API_KEY:-}" ]]; then
+        elif [[ -n "${KIMI_AUTH_TOKEN:-}" ]] || [[ -n "${KIMI_API_KEY:-}" ]]; then
             current_provider="kimi"
         fi
     fi
@@ -203,25 +221,29 @@ handle_set() {
             model_name=""  # Let Claude CLI use defaults
             ;;
         "zai")
-            auth_token="${ZAI_API_KEY:-}"
+            # Check AUTH_TOKEN first, then fall back to API_KEY for compatibility
+            auth_token="${ZAI_AUTH_TOKEN:-${ZAI_API_KEY:-}}"
             timeout_ms="${ZAI_TIMEOUT:-3000000}"
             base_url="${ZAI_BASE_URL:-$ZAI_BASE_URL_DEFAULT}"
             model_name=""  # Proxy handles model mapping
             ;;
         "minimax")
-            auth_token="${MINIMAX_API_KEY:-}"
+            # Check AUTH_TOKEN first, then fall back to API_KEY for compatibility
+            auth_token="${MINIMAX_AUTH_TOKEN:-${MINIMAX_API_KEY:-}}"
             timeout_ms="${MINIMAX_TIMEOUT:-3000000}"
             base_url="${MINIMAX_BASE_URL:-$MINIMAX_BASE_URL_DEFAULT}"
             model_name=""  # Proxy handles model mapping
             ;;
         "kimi")
-            auth_token="${KIMI_API_KEY:-}"
+            # Check AUTH_TOKEN first, then fall back to API_KEY for compatibility
+            auth_token="${KIMI_AUTH_TOKEN:-${KIMI_API_KEY:-}}"
             timeout_ms="${KIMI_TIMEOUT:-3000000}"
             base_url="${KIMI_BASE_URL:-$KIMI_BASE_URL_DEFAULT}"
             model_name=""  # Proxy handles model mapping
             ;;
         "kimi-for-coding")
-            auth_token="${KIMI_API_KEY:-}"  # Uses same API key as regular Kimi
+            # Check AUTH_TOKEN first, then fall back to API_KEY for compatibility
+            auth_token="${KIMI_AUTH_TOKEN:-${KIMI_API_KEY:-}}"  # Uses same API key as regular Kimi
             timeout_ms="${KIMI_FOR_CODING_TIMEOUT:-3000000}"
             base_url="${KIMI_FOR_CODING_BASE_URL:-$KIMI_FOR_CODING_BASE_URL_DEFAULT}"  # https://api.kimi.com/coding/
             model_name="kimi-for-coding"  # Required for kimi-for-coding endpoint
@@ -245,7 +267,7 @@ handle_set() {
     }
 
     # Set up cleanup trap
-    trap "rm -f '$temp_file'" RETURN
+    trap "rm -f \"$temp_file\"" RETURN
 
     local jq_result=0
     if [[ -n "$base_url" ]]; then

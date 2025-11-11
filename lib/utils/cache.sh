@@ -36,9 +36,13 @@ extract_session_model() {
     local model="unknown"
     if [[ -f "$session_file" ]]; then
         # Read only first 8KB for speed (most models are in early messages)
-        model=$(head -c 8192 "$session_file" 2>/dev/null | \
-            grep '"type":"assistant"' | head -1 | \
-            jq -r '.message.model // "unknown"' 2>/dev/null || echo "unknown")
+        local assistant_line
+        assistant_line=$(head -c 8192 "$session_file" 2>/dev/null | \
+            grep '"type":"assistant"' | head -1)
+
+        if [[ -n "$assistant_line" ]]; then
+            model=$(echo "$assistant_line" | jq -r '.message.model // "unknown"' 2>/dev/null || echo "unknown")
+        fi
     fi
 
     # Update file cache (with size management)

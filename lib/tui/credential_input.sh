@@ -124,7 +124,8 @@ setup_provider_credentials_tui() {
     esac
 
     # Export for current session
-    export "$var_name=$token"
+    # Use declare -x to safely set and export variables with special characters
+    declare -x "$var_name=$token"
 
     # Save to .zshrc if requested
     if [[ "$save_to_zshrc" == true ]]; then

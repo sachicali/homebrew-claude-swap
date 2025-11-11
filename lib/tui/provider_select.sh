@@ -35,13 +35,16 @@ is_provider_configured() {
             [[ -n "${ANTHROPIC_API_KEY:-}" ]] && return 0 || return 1
             ;;
         "zai")
-            [[ -n "${ZAI_AUTH_TOKEN:-}" ]] && return 0 || return 1
+            # Check both variable names for compatibility
+            [[ -n "${ZAI_AUTH_TOKEN:-}" ]] || [[ -n "${ZAI_API_KEY:-}" ]] && return 0 || return 1
             ;;
         "minimax")
-            [[ -n "${MINIMAX_AUTH_TOKEN:-}" ]] && return 0 || return 1
+            # Check both variable names for compatibility
+            [[ -n "${MINIMAX_AUTH_TOKEN:-}" ]] || [[ -n "${MINIMAX_API_KEY:-}" ]] && return 0 || return 1
             ;;
         "kimi"|"moonshot"|"kimi-for-coding")
-            [[ -n "${KIMI_AUTH_TOKEN:-}" ]] && return 0 || return 1
+            # Check both variable names for compatibility
+            [[ -n "${KIMI_AUTH_TOKEN:-}" ]] || [[ -n "${KIMI_API_KEY:-}" ]] && return 0 || return 1
             ;;
         *)
             return 1
