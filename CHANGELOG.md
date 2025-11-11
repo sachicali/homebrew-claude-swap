@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2025-11-11
+
 ### Added
 - **Official Kimi for Coding Support** - ⭐ **OFFICIAL Moonshot Product**
   - **This is the OFFICIAL "Kimi for Coding" membership plan from Moonshot AI**
@@ -18,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Separate instance directory from regular `kimi`
   - Usage: `claudeswap kimi-for-coding "implement production system"`
   - Uses same token (`CLAUDE_KIMI_AUTH_TOKEN`) but different endpoint
+- **jq Availability Check** (`lib/tui/tui_common.sh`)
+  - New `check_jq_available()` function validates jq installation
+  - Informative error messages with installation instructions
+  - Graceful degradation when jq is missing
 
 ### Changed
 - **Regular Kimi Updated to K2 Turbo** - ⚡ 4x faster performance!
@@ -26,20 +32,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cost: $0.30/$1.20/$5.00 per million tokens (cache hit/miss/output)
   - Same 256K context window
   - Best for: General queries, fast responses
-
 - **Kimi Configuration Split** - Two distinct profiles now supported
   - `kimi` → kimi-k2-turbo-preview at api.moonshot.cn/v1
   - `kimi-for-coding` → Official coding plan at api.kimi.com/coding/
-
 - **lib/constants.sh** - Added kimi-for-coding specific constants
   - `KIMI_FOR_CODING_BASE_URL_DEFAULT` = "https://api.kimi.com/coding/"
   - `KIMI_FOR_CODING_MODEL` = "kimi-for-coding"
   - `KIMI_FOR_CODING_TIMEOUT_DEFAULT`
-
 - **lib/models.sh** - Updated model mapping
   - Regular kimi uses kimi-k2-turbo-preview (4x faster)
   - kimi-for-coding always returns "kimi-for-coding" (official model name)
   - Simplified kimi-for-coding mapping (no family detection needed)
+
+### Fixed
+- **Silent jq Failures** - Prevented crashes when jq is not installed
+  - `get_current_provider()` now checks jq before use
+  - Returns success (0) for graceful degradation with set -e
+  - All `_source_if_exists` calls trigger immediate exit on failure (|| exit 1)
 
 ## [1.5.0] - 2025-11-10
 
