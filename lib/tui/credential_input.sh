@@ -3,16 +3,20 @@
 # TUI Credential Input Handler
 # Single Responsibility: Interactive credential setup
 
+# Source guard
+[[ -n "${_CREDENTIAL_INPUT_LOADED:-}" ]] && return 0
+readonly _CREDENTIAL_INPUT_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 
 # NASA Rule 7: Check file existence before sourcing
-if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh" ]]; then
-    echo "ERROR: Required gum_utils.sh not found" >&2
+if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/tui_common.sh" ]]; then
+    echo "ERROR: Required tui_common.sh not found" >&2
     exit 1
 fi
 
-source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh"
+source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/tui_common.sh"
 
 # Set up credentials for a specific provider with TUI
 setup_provider_credentials_tui() {

@@ -3,16 +3,20 @@
 # TUI Provider Comparison Table
 # Single Responsibility: Display provider comparison in table format
 
+# Source guard
+[[ -n "${_COMPARISON_TABLE_LOADED:-}" ]] && return 0
+readonly _COMPARISON_TABLE_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 
 # NASA Rule 7: Check file existence before sourcing
-if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh" ]]; then
-    echo "ERROR: Required gum_utils.sh not found" >&2
+if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/tui_common.sh" ]]; then
+    echo "ERROR: Required tui_common.sh not found" >&2
     exit 1
 fi
 
-source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh"
+source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/tui_common.sh"
 
 # Build provider comparison data
 build_comparison_data() {

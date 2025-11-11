@@ -3,6 +3,10 @@
 # Gum utilities and dependency management
 # Single Responsibility: Gum integration and helper functions
 
+# Source guard
+[[ -n "${_GUM_UTILS_LOADED:-}" ]] && return 0
+readonly _GUM_UTILS_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 

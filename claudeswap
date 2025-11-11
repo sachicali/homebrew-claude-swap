@@ -57,11 +57,17 @@ done
 
 # Source TUI components (optional - graceful degradation)
 TUI_AVAILABLE=false
-if [[ -f "$LIB_DIR/tui/gum_utils.sh" ]] && [[ -f "$LIB_DIR/tui/main_menu.sh" ]]; then
-    source "$LIB_DIR/tui/gum_utils.sh"
+if [[ -f "$LIB_DIR/tui/tui_common.sh" ]] && [[ -f "$LIB_DIR/tui/main_menu.sh" ]]; then
+    # Source the common TUI library which loads all dependencies
+    source "$LIB_DIR/tui/tui_common.sh"
     if check_gum_installed; then
         TUI_AVAILABLE=true
-        source "$LIB_DIR/tui/main_menu.sh"
+        # Source all TUI component files
+        for tui_component in "main_menu.sh" "credential_input.sh" "comparison_table.sh" "provider_select.sh" "model_filter.sh"; do
+            if [[ -f "$LIB_DIR/tui/$tui_component" ]]; then
+                source "$LIB_DIR/tui/$tui_component"
+            fi
+        done
     fi
 fi
 

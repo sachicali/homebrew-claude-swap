@@ -4,6 +4,10 @@
 # Single Responsibility: Manage isolated Claude instances per provider
 # Inspired by CCS's instance isolation architecture
 
+# Source guard
+[[ -n "${_INSTANCE_MANAGER_LOADED:-}" ]] && return 0
+readonly _INSTANCE_MANAGER_LOADED=1
+
 # Bash safety: exit on error, undefined vars, pipe failures
 set -euo pipefail
 
