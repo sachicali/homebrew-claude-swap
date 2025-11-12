@@ -129,7 +129,7 @@ run_tui_main_loop() {
                     source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/history.sh"
                     show_history_tui || log_error_tui "History view failed"
                 else
-                    log_warning "History view not yet implemented"
+                    log_warning_tui "History view not yet implemented"
                 fi
                 ;;
             "❌ Exit")

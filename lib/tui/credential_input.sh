@@ -49,7 +49,7 @@ setup_provider_credentials_tui() {
             "Kimi / Moonshot") provider="kimi" ;;
             "MiniMax") provider="minimax" ;;
             *)
-                log_error "Invalid provider selection"
+                log_error_tui "Invalid provider selection"
                 return 1
                 ;;
         esac
@@ -59,7 +59,7 @@ setup_provider_credentials_tui() {
     case "$provider" in
         standard|zai|kimi|minimax|moonshot) ;;
         *)
-            log_error "Invalid provider: $provider"
+            log_error_tui "Invalid provider"
             return 1
             ;;
     esac

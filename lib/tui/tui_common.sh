@@ -108,7 +108,7 @@ tui_handle_set() {
     if declare -f handle_set >/dev/null 2>&1; then
         handle_set "$provider" "$model"
     else
-        log_error "handle_set function not available"
+        log_error_tui "handle_set function not available"
         return 1
     fi
 }
@@ -119,7 +119,7 @@ tui_handle_status() {
     if declare -f handle_status >/dev/null 2>&1; then
         handle_status
     else
-        log_error "handle_status function not available"
+        log_error_tui "handle_status function not available"
         return 1
     fi
 }
