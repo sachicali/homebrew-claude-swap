@@ -45,8 +45,8 @@ _source_if_exists "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh" || exit 1
 # Check for required commands
 check_jq_available() {
     if ! command -v jq &>/dev/null; then
-        log_error "jq is required but not installed. Please install jq to use this feature."
-        log_error "Installation: brew install jq (macOS) or apt-get install jq (Linux)"
+        log_error_tui "jq is required but not installed. Please install jq to use this feature."
+        log_error_tui "Installation: brew install jq (macOS) or apt-get install jq (Linux)"
         return 1
     fi
     return 0

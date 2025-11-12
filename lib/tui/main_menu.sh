@@ -33,7 +33,7 @@ show_main_menu() {
 
     # NASA Rule 2: Fixed bound on menu items
     if [[ ${#menu_items[@]} -gt $MAX_TUI_MENU_ITEMS ]]; then
-        log_error "Menu items exceed maximum ($MAX_TUI_MENU_ITEMS)"
+        log_error_tui "Menu items exceed maximum"
         return 1
     fi
 
@@ -69,7 +69,7 @@ run_tui_main_loop() {
 
         local choice
         choice=$(show_main_menu) || {
-            log_error "Failed to show main menu"
+            log_error_tui "Failed to show main menu"
             return 1
         }
 
@@ -85,49 +85,49 @@ run_tui_main_loop() {
             "🔄 Switch Provider")
                 # Call provider selection TUI (pre-loaded)
                 if declare -f show_provider_selection_tui >/dev/null 2>&1; then
-                    show_provider_selection_tui || log_error "Provider selection failed"
+                    show_provider_selection_tui || log_error_tui "Provider selection failed"
                 else
-                    log_error "Provider selection function not available"
+                    log_error_tui "Provider selection function not available"
                 fi
                 ;;
             "🔧 Setup Credentials")
                 # Call credential setup TUI (pre-loaded)
                 if declare -f show_credential_setup_tui >/dev/null 2>&1; then
-                    show_credential_setup_tui || log_error "Credential setup failed"
+                    show_credential_setup_tui || log_error_tui "Credential setup failed"
                 else
-                    log_error "Credential setup function not available"
+                    log_error_tui "Credential setup function not available"
                 fi
                 ;;
             "📊 Compare Providers")
                 # Call comparison table (pre-loaded)
                 if declare -f show_provider_comparison >/dev/null 2>&1; then
-                    show_provider_comparison || log_error "Provider comparison failed"
+                    show_provider_comparison || log_error_tui "Provider comparison failed"
                 else
-                    log_error "Provider comparison function not available"
+                    log_error_tui "Provider comparison function not available"
                 fi
                 ;;
             "🧪 Test Models")
                 # Call model filter (pre-loaded)
                 if declare -f show_model_filter_tui >/dev/null 2>&1; then
-                    show_model_filter_tui || log_error "Model filter failed"
+                    show_model_filter_tui || log_error_tui "Model filter failed"
                 else
-                    log_error "Model filter function not available"
+                    log_error_tui "Model filter function not available"
                 fi
                 ;;
             "📈 View Status")
-                tui_handle_status || log_error "Status display failed"
+                tui_handle_status || log_error_tui "Status display failed"
                 gum spin --spinner dot --title "Press any key to continue..." -- sleep 3
                 ;;
             "💾 Manage Sessions")
                 # Show session management submenu
-                log_info "Session management menu (coming soon)"
+                log_info_tui "Session management menu (coming soon)"
                 gum spin --spinner dot --title "Press any key to continue..." -- sleep 2
                 ;;
             "📜 View History")
                 # Call history viewer
                 if [[ -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/history.sh" ]]; then
                     source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/history.sh"
-                    show_history_tui || log_error "History view failed"
+                    show_history_tui || log_error_tui "History view failed"
                 else
                     log_warning "History view not yet implemented"
                 fi
@@ -139,11 +139,11 @@ run_tui_main_loop() {
                 return 0
                 ;;
             *)
-                log_error "Invalid menu selection: $choice"
+                log_error_tui "Invalid menu selection"
                 ;;
         esac
     done
 
-    log_error "Maximum iterations reached in TUI loop"
+    log_error_tui "Maximum iterations reached in TUI loop"
     return 1
 }
