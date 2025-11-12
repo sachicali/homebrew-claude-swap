@@ -8,7 +8,8 @@
 readonly _COMPARISON_TABLE_LOADED=1
 
 # Bash safety: exit on error, undefined vars, pipe failures
-set -euo pipefail
+set +e
+set -u
 
 # NASA Rule 7: Check file existence before sourcing
 if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/tui_common.sh" ]]; then

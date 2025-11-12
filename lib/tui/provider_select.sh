@@ -4,7 +4,8 @@
 # Single Responsibility: Interactive provider selection and switching
 
 # Bash safety: exit on error, undefined vars, pipe failures
-set -euo pipefail
+set +e
+set -u
 
 # NASA Rule 7: Check file existence before sourcing
 if [[ ! -f "${CLAUDE_SWAP_BASE_DIR}/lib/tui/gum_utils.sh" ]]; then
@@ -127,7 +128,7 @@ show_provider_selection_tui() {
     elif [[ "$choice" == *"MiniMax"* ]]; then
         selected_provider="minimax"
     else
-        log_error "Invalid provider selection"
+        log_error_tui "Invalid provider selection"
         return 1
     fi
 
@@ -143,11 +144,11 @@ show_provider_selection_tui() {
                 source "${CLAUDE_SWAP_BASE_DIR}/lib/tui/credential_input.sh"
                 setup_provider_credentials_tui "$selected_provider" || return 1
             else
-                log_error "Credential setup not available"
+                log_error_tui "Credential setup not available"
                 return 1
             fi
         else
-            log_info "Cancelled provider switch"
+            log_info_tui "Cancelled provider switch"
             return 0
         fi
     fi
@@ -170,7 +171,7 @@ show_provider_selection_tui() {
                 --foreground="$GUM_SUCCESS_COLOR" \
                 "✓ Successfully switched to $selected_provider"
         else
-            log_info "Cancelled provider switch"
+            log_info_tui "Cancelled provider switch"
         fi
     else
         gum style \
