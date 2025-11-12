@@ -188,6 +188,14 @@ setup_service_credentials() {
             local temp_file="${config_file}.tmp.$$"
             local updated=0
 
+            # Preserve original file permissions
+            local original_perms
+            if [[ -f "$config_file" ]]; then
+                original_perms=$(stat -c %a "$config_file" 2>/dev/null || stat -f %A "$config_file" 2>/dev/null || echo "644")
+            else
+                original_perms="644"
+            fi
+
             while IFS= read -r line || [[ -n "$line" ]]; do
                 # Check if this is the line to replace (using bash string matching, not regex)
                 if [[ "$line" == "export $var_name="* ]]; then
@@ -198,8 +206,11 @@ setup_service_credentials() {
                 fi
             done < "$config_file" > "$temp_file"
 
-            # Replace original file with updated version
-            if [[ $updated -eq 1 ]] && mv "$temp_file" "$config_file"; then
+            # Set permissions on temp file before atomic move
+            chmod "$original_perms" "$temp_file" 2>/dev/null || true
+
+            # Replace original file with updated version (atomic operation)
+            if [[ $updated -eq 1 ]] && mv -f "$temp_file" "$config_file"; then
                 echo -e "${GREEN}✓${NC} Updated existing token in $config_file"
             else
                 rm -f "$temp_file"

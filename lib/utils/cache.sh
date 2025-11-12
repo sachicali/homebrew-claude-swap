@@ -35,13 +35,16 @@ extract_session_model() {
     # Extract model (optimized - read only first few KB)
     local model="unknown"
     if [[ -f "$session_file" ]]; then
-        # Read only first 8KB for speed (most models are in early messages)
-        local assistant_line
-        assistant_line=$(head -c 8192 "$session_file" 2>/dev/null | \
-            grep '"type":"assistant"' | head -1)
+        # Use jq streaming parser to handle both compact and pretty-printed JSON
+        # Read first 16KB to ensure we capture at least one complete assistant message
+        # jq's streaming parser can handle incomplete JSON gracefully
+        model=$(head -c 16384 "$session_file" 2>/dev/null | \
+            jq -r 'select(.type == "assistant") | .message.model // "unknown"' 2>/dev/null | \
+            head -1)
 
-        if [[ -n "$assistant_line" ]]; then
-            model=$(echo "$assistant_line" | jq -r '.message.model // "unknown"' 2>/dev/null || echo "unknown")
+        # Fallback to unknown if jq fails or returns empty
+        if [[ -z "$model" ]] || [[ "$model" == "null" ]]; then
+            model="unknown"
         fi
     fi
 
@@ -54,10 +57,10 @@ extract_session_model() {
     if [[ $cache_lines -gt $CACHE_SIZE_LIMIT ]]; then
         local temp_cache
         temp_cache=$(mktemp) || return 0
-        trap "rm -f '$temp_cache'" EXIT
+        trap "rm -f \"$temp_cache\"" EXIT
 
         if tail -n $((CACHE_SIZE_LIMIT / 2)) "$CACHE_FILE" > "$temp_cache" 2>/dev/null; then
-            mv "$temp_cache" "$CACHE_FILE" 2>/dev/null || true
+            mv -f "$temp_cache" "$CACHE_FILE" 2>/dev/null || true
         fi
 
         # Clean up immediately if successful
