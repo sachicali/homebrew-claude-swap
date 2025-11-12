@@ -89,6 +89,8 @@ run_tui_main_loop() {
                 else
                     log_error_tui "Provider selection function not available"
                 fi
+                # Pause to let user see result before returning to menu
+                gum spin --spinner dot --title "Press any key to continue..." -- sleep 2
                 ;;
             "🔧 Setup Credentials")
                 # Call credential setup TUI (pre-loaded)
@@ -97,6 +99,8 @@ run_tui_main_loop() {
                 else
                     log_error_tui "Credential setup function not available"
                 fi
+                # Pause to let user see result before returning to menu
+                gum spin --spinner dot --title "Press any key to continue..." -- sleep 2
                 ;;
             "📊 Compare Providers")
                 # Call comparison table (pre-loaded)
@@ -105,6 +109,8 @@ run_tui_main_loop() {
                 else
                     log_error_tui "Provider comparison function not available"
                 fi
+                # Pause to let user see result before returning to menu
+                gum spin --spinner dot --title "Press any key to continue..." -- sleep 3
                 ;;
             "🧪 Test Models")
                 # Call model filter (pre-loaded)
@@ -113,6 +119,8 @@ run_tui_main_loop() {
                 else
                     log_error_tui "Model filter function not available"
                 fi
+                # Pause to let user see result before returning to menu
+                gum spin --spinner dot --title "Press any key to continue..." -- sleep 2
                 ;;
             "📈 View Status")
                 tui_handle_status || log_error_tui "Status display failed"
@@ -131,6 +139,8 @@ run_tui_main_loop() {
                 else
                     log_warning_tui "History view not yet implemented"
                 fi
+                # Pause to let user see result before returning to menu
+                gum spin --spinner dot --title "Press any key to continue..." -- sleep 2
                 ;;
             "❌ Exit")
                 gum style \
